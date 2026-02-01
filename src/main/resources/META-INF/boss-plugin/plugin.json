@@ -1,0 +1,21 @@
+{
+  "manifestVersion": 1,
+  "pluginId": "ai.rever.boss.plugin.dynamic.topofmind",
+  "displayName": "Top of Mind (Dynamic)",
+  "version": "1.0.0",
+  "apiVersion": "1.0",
+  "mainClass": "ai.rever.boss.plugin.dynamic.topofmind.TopofmindDynamicPlugin",
+  "type": "panel",
+  "description": "Quick access to frequently used items",
+  "author": "Risa Labs",
+  "url": "https://github.com/risa-labs-inc/boss-plugin-topofmind",
+  "panel": {
+    "position": "left_top_bottom",
+    "priority": 5
+  },
+  "sandbox": {
+    "maxThreads": 4,
+    "maxRestartAttempts": 3,
+    "heartbeatIntervalMs": 5000
+  }
+}

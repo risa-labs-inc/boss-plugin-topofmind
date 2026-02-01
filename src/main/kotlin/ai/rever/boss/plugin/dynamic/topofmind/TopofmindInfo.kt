@@ -1,0 +1,19 @@
+package ai.rever.boss.plugin.dynamic.topofmind
+
+import ai.rever.boss.plugin.api.Panel.Companion.left
+import ai.rever.boss.plugin.api.Panel.Companion.top
+import ai.rever.boss.plugin.api.Panel.Companion.bottom
+import ai.rever.boss.plugin.api.PanelId
+import ai.rever.boss.plugin.api.PanelInfo
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Language
+
+/**
+ * Top of Mind panel info (Dynamic Plugin)
+ */
+object TopofmindInfo : PanelInfo {
+    override val id = PanelId("top-of-mind", 5)
+    override val displayName = "Top of Mind"
+    override val icon = Icons.Outlined.Language
+    override val defaultSlotPosition = left.top.bottom
+}
