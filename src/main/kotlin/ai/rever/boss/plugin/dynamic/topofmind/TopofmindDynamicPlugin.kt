@@ -12,7 +12,7 @@ import ai.rever.boss.plugin.api.PluginContext
 class TopofmindDynamicPlugin : DynamicPlugin {
     override val pluginId: String = "ai.rever.boss.plugin.dynamic.topofmind"
     override val displayName: String = "Top of Mind (Dynamic)"
-    override val version: String = "1.0.1"
+    override val version: String = "1.0.2"
     override val description: String = "Workspace manager - switch and organize workspaces"
     override val author: String = "Risa Labs"
     override val url: String = "https://github.com/risa-labs-inc/boss-plugin-topofmind"

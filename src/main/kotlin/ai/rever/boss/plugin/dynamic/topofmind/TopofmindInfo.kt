@@ -9,11 +9,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Language
 
 /**
- * Top of Mind panel info (Dynamic Plugin)
+ * Top of Mind panel info
+ *
+ * Priority 5 = Position in left.top.bottom panel
  */
 object TopofmindInfo : PanelInfo {
     override val id = PanelId("top-of-mind", 5)
-    override val displayName = "Top of Mind"
+    override val displayName = "Top of mind"
     override val icon = Icons.Outlined.Language
     override val defaultSlotPosition = left.top.bottom
 }
