@@ -1,5 +1,6 @@
 package ai.rever.boss.plugin.dynamic.topofmind
 
+import ai.rever.boss.plugin.api.ActiveTabsProvider
 import ai.rever.boss.plugin.api.PanelComponentWithUI
 import ai.rever.boss.plugin.api.PanelInfo
 import ai.rever.boss.plugin.api.SplitViewOperations
@@ -11,11 +12,12 @@ import kotlinx.coroutines.CoroutineScope
 /**
  * Top of Mind panel component (Dynamic Plugin).
  *
- * Displays workspaces and allows quick switching.
+ * Displays currently active tabs across all workspaces.
  */
 class TopofmindComponent(
     ctx: ComponentContext,
     override val panelInfo: PanelInfo,
+    private val activeTabsProvider: ActiveTabsProvider?,
     private val workspaceDataProvider: WorkspaceDataProvider?,
     private val splitViewOperations: SplitViewOperations?,
     private val scope: CoroutineScope
@@ -24,6 +26,7 @@ class TopofmindComponent(
     @Composable
     override fun Content() {
         TopOfMindContent(
+            activeTabsProvider = activeTabsProvider,
             workspaceDataProvider = workspaceDataProvider,
             splitViewOperations = splitViewOperations,
             scope = scope

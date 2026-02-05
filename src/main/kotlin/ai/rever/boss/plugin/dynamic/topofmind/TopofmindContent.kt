@@ -1,14 +1,16 @@
 package ai.rever.boss.plugin.dynamic.topofmind
 
+import ai.rever.boss.plugin.api.ActiveTabData
+import ai.rever.boss.plugin.api.ActiveTabsProvider
 import ai.rever.boss.plugin.api.SplitViewOperations
 import ai.rever.boss.plugin.api.WorkspaceDataProvider
 import ai.rever.boss.plugin.scrollbar.getPanelScrollbarConfig
 import ai.rever.boss.plugin.scrollbar.lazyListScrollbar
 import ai.rever.boss.plugin.ui.BossTheme
-import ai.rever.boss.plugin.workspace.LayoutWorkspace
-import ai.rever.boss.plugin.workspace.SplitConfig
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,49 +19,50 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Top of Mind panel content (Dynamic Plugin).
  *
- * Displays workspaces and allows quick switching between them.
+ * Displays currently active/running tabs across all workspaces,
+ * matching the bundled plugin behavior.
  */
 @Composable
 fun TopOfMindContent(
+    activeTabsProvider: ActiveTabsProvider?,
     workspaceDataProvider: WorkspaceDataProvider?,
     splitViewOperations: SplitViewOperations?,
     scope: CoroutineScope
 ) {
-    val viewModel = remember(workspaceDataProvider, splitViewOperations, scope) {
-        TopOfMindViewModel(workspaceDataProvider, splitViewOperations, scope)
-    }
-
     BossTheme {
-        if (!viewModel.isAvailable()) {
+        if (activeTabsProvider == null) {
             NoProviderMessage()
         } else {
-            WorkspaceList(viewModel)
+            ActiveTabsTreeContent(
+                activeTabsProvider = activeTabsProvider,
+                workspaceDataProvider = workspaceDataProvider,
+                splitViewOperations = splitViewOperations,
+                scope = scope
+            )
         }
-    }
-
-    LaunchedEffect(Unit) {
-        viewModel.initialize()
     }
 }
 
@@ -67,7 +70,7 @@ fun TopOfMindContent(
 private fun NoProviderMessage() {
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colors.background
+        color = Color(0xFF2B2D30)
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -75,7 +78,7 @@ private fun NoProviderMessage() {
             verticalArrangement = Arrangement.Center
         ) {
             Icon(
-                imageVector = Icons.Outlined.Language,
+                imageVector = Icons.Outlined.Workspaces,
                 contentDescription = null,
                 modifier = Modifier.size(48.dp),
                 tint = MaterialTheme.colors.primary.copy(alpha = 0.6f)
@@ -89,97 +92,154 @@ private fun NoProviderMessage() {
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Workspace provider not available",
+                text = "Active tabs provider not available",
                 fontSize = 13.sp,
                 color = MaterialTheme.colors.onBackground.copy(alpha = 0.6f)
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Please ensure the host provides workspace access",
-                fontSize = 11.sp,
-                color = MaterialTheme.colors.onBackground.copy(alpha = 0.4f)
             )
         }
     }
 }
 
 @Composable
-private fun WorkspaceList(viewModel: TopOfMindViewModel) {
-    val workspaces by viewModel.workspaces?.collectAsState() ?: return
-    val currentWorkspace by viewModel.currentWorkspace?.collectAsState() ?: return
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val expandedWorkspaces by viewModel.expandedWorkspaces.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val statusMessage by viewModel.statusMessage.collectAsState()
+private fun ActiveTabsTreeContent(
+    activeTabsProvider: ActiveTabsProvider,
+    workspaceDataProvider: WorkspaceDataProvider?,
+    splitViewOperations: SplitViewOperations?,
+    scope: CoroutineScope
+) {
+    val activeTabs by activeTabsProvider.activeTabs.collectAsState()
+
+    // Refresh tabs on composition and periodically poll for updates
+    LaunchedEffect(activeTabsProvider) {
+        activeTabsProvider.refreshTabs()  // Initial refresh
+        while (true) {
+            delay(1000)  // Poll every second
+            activeTabsProvider.refreshTabs()
+        }
+    }
+
+    var searchQuery by remember { mutableStateOf("") }
+    var showCurrentWorkspace by remember { mutableStateOf(true) }
     val listState = rememberLazyListState()
 
-    // Filter workspaces by search query
-    val filteredWorkspaces = remember(workspaces, searchQuery) {
-        if (searchQuery.isEmpty()) {
-            workspaces
+    // Get current workspace ID for filtering
+    val currentWorkspaceId = workspaceDataProvider?.currentWorkspace?.collectAsState()?.value?.id
+
+    // Filter tabs based on showCurrentWorkspace toggle
+    val filteredTabs = if (showCurrentWorkspace) {
+        activeTabs
+    } else {
+        activeTabs.filter { it.workspaceId != currentWorkspaceId }
+    }
+
+    // Build tree structure from active tabs using workspace layout
+    val treeNodes = remember(filteredTabs, workspaceDataProvider) {
+        TabTreeBuilder.buildTree(filteredTabs, workspaceDataProvider)
+    }
+
+    // Initialize default expansion
+    LaunchedEffect(treeNodes) {
+        TabTreeState.initializeDefaultExpansion(treeNodes)
+    }
+
+    // Apply search filter
+    val filteredTreeNodes = remember(treeNodes, searchQuery) {
+        if (searchQuery.isBlank()) {
+            treeNodes
         } else {
-            workspaces.filter { workspace ->
-                workspace.name.contains(searchQuery, ignoreCase = true)
-            }
+            TabTreeBuilder.filterTreeNodes(treeNodes, searchQuery)
         }
     }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colors.background
+        color = Color(0xFF2B2D30)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Toolbar with search
-            WorkspaceToolbar(
-                searchQuery = searchQuery,
-                onSearchChange = viewModel::updateSearchQuery,
-                onSave = { viewModel.saveCurrentWorkspace(null) }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp)
+        ) {
+            // Search bar
+            SearchBar(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                placeholder = "Search active tabs..."
             )
 
-            Divider(color = MaterialTheme.colors.onBackground.copy(alpha = 0.1f))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Status message
-            if (statusMessage != null) {
-                StatusMessage(
-                    message = statusMessage!!,
-                    onDismiss = viewModel::clearStatusMessage
+            // Header with toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Running Workspaces",
+                    fontSize = 10.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Text(
+                    text = if (showCurrentWorkspace) "Hide Current" else "Show Current",
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colors.primary.copy(alpha = 0.8f),
+                    modifier = Modifier.clickable { showCurrentWorkspace = !showCurrentWorkspace }
                 )
             }
 
-            // Loading indicator
-            if (isLoading) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(2.dp),
-                    color = MaterialTheme.colors.primary
-                )
-            }
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Workspace list
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (filteredWorkspaces.isEmpty()) {
-                    EmptyWorkspaceMessage(
-                        isSearching = searchQuery.isNotEmpty()
-                    )
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .lazyListScrollbar(listState, Orientation.Vertical, getPanelScrollbarConfig())
+            // Content
+            if (filteredTreeNodes.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        items(
-                            items = filteredWorkspaces,
-                            key = { it.id }
-                        ) { workspace ->
-                            WorkspaceItem(
-                                workspace = workspace,
-                                isExpanded = workspace.id in expandedWorkspaces,
-                                isCurrent = currentWorkspace?.id == workspace.id,
-                                onToggleExpand = { viewModel.toggleWorkspace(workspace.id) },
-                                onSelect = { viewModel.selectWorkspace(workspace) },
-                                onDelete = { viewModel.deleteWorkspace(workspace.name) }
-                            )
-                        }
+                        Icon(
+                            if (searchQuery.isNotBlank()) Icons.Outlined.Search else Icons.Outlined.Tab,
+                            contentDescription = null,
+                            modifier = Modifier.size(32.dp),
+                            tint = Color.Gray.copy(alpha = 0.5f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (searchQuery.isNotBlank())
+                                "No tabs matching \"$searchQuery\""
+                            else
+                                "No active tabs",
+                            color = Color.Gray,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .lazyListScrollbar(
+                            listState = listState,
+                            direction = Orientation.Vertical,
+                            config = getPanelScrollbarConfig()
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    items(filteredTreeNodes) { treeNode ->
+                        TreeNodeItem(
+                            node = treeNode,
+                            currentWorkspaceId = currentWorkspaceId,
+                            activeTabsProvider = activeTabsProvider,
+                            workspaceDataProvider = workspaceDataProvider,
+                            splitViewOperations = splitViewOperations,
+                            scope = scope
+                        )
                     }
                 }
             }
@@ -188,357 +248,419 @@ private fun WorkspaceList(viewModel: TopOfMindViewModel) {
 }
 
 @Composable
-private fun WorkspaceToolbar(
-    searchQuery: String,
-    onSearchChange: (String) -> Unit,
-    onSave: () -> Unit
+private fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    placeholder: String
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(36.dp)
-            .background(MaterialTheme.colors.surface)
+            .height(28.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color(0xFF1E1F22))
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Search field
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .height(24.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(MaterialTheme.colors.background.copy(alpha = 0.5f))
-                .padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Search,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colors.onSurface.copy(alpha = 0.5f)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            BasicTextField(
-                value = searchQuery,
-                onValueChange = onSearchChange,
-                modifier = Modifier.weight(1f),
-                singleLine = true,
-                textStyle = TextStyle(
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colors.onSurface
-                ),
-                cursorBrush = SolidColor(MaterialTheme.colors.primary),
-                decorationBox = { innerTextField ->
-                    Box {
-                        if (searchQuery.isEmpty()) {
-                            Text(
-                                text = "Search workspaces...",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colors.onSurface.copy(alpha = 0.4f)
-                            )
-                        }
-                        innerTextField()
+        Icon(
+            imageVector = Icons.Outlined.Search,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = Color.Gray.copy(alpha = 0.6f)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            textStyle = TextStyle(
+                fontSize = 11.sp,
+                color = Color.White
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colors.primary),
+            decorationBox = { innerTextField ->
+                Box {
+                    if (query.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            fontSize = 11.sp,
+                            color = Color.Gray.copy(alpha = 0.5f)
+                        )
                     }
+                    innerTextField()
                 }
-            )
-            if (searchQuery.isNotEmpty()) {
-                Icon(
-                    imageVector = Icons.Default.Clear,
-                    contentDescription = "Clear",
-                    modifier = Modifier
-                        .size(12.dp)
-                        .clickable { onSearchChange("") },
-                    tint = MaterialTheme.colors.onSurface.copy(alpha = 0.5f)
-                )
             }
-        }
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        // Save button
-        IconButton(
-            onClick = onSave,
-            modifier = Modifier.size(28.dp)
-        ) {
+        )
+        if (query.isNotEmpty()) {
             Icon(
-                imageVector = Icons.Default.Save,
-                contentDescription = "Save Workspace",
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colors.onSurface.copy(alpha = 0.7f)
+                imageVector = Icons.Default.Clear,
+                contentDescription = "Clear",
+                modifier = Modifier
+                    .size(14.dp)
+                    .clickable { onQueryChange("") },
+                tint = Color.Gray.copy(alpha = 0.6f)
             )
         }
     }
 }
 
 @Composable
-private fun StatusMessage(
-    message: String,
-    onDismiss: () -> Unit
+private fun TreeNodeItem(
+    node: TabTreeNode,
+    currentWorkspaceId: String?,
+    activeTabsProvider: ActiveTabsProvider,
+    workspaceDataProvider: WorkspaceDataProvider?,
+    splitViewOperations: SplitViewOperations?,
+    scope: CoroutineScope
+) {
+    val expandedNodes by TabTreeState.expandedNodes.collectAsState()
+    val isExpanded = expandedNodes.contains(node.id)
+
+    Column {
+        when (node) {
+            is TabTreeNode.WorkspaceNode -> {
+                WorkspaceFolderItem(
+                    node = node,
+                    isExpanded = isExpanded,
+                    isActive = currentWorkspaceId == node.workspaceId,
+                    onToggleExpand = { TabTreeState.toggleExpansion(node.id) },
+                    onWorkspaceClick = {
+                        // Switch to this workspace
+                        if (splitViewOperations != null && workspaceDataProvider != null) {
+                            scope.launch {
+                                val currentWorkspace = workspaceDataProvider.currentWorkspace.value
+                                val targetWorkspace = workspaceDataProvider.workspaces.value.find {
+                                    it.id == node.workspaceId
+                                }
+
+                                if (targetWorkspace != null && currentWorkspace?.id != node.workspaceId) {
+                                    // Preserve current state before switching
+                                    if (currentWorkspace != null && currentWorkspace.id.isNotEmpty()) {
+                                        splitViewOperations.preserveCurrentState(currentWorkspace.id, currentWorkspace.name)
+                                    }
+                                    // Load and apply the target workspace
+                                    workspaceDataProvider.loadWorkspace(targetWorkspace)
+                                    splitViewOperations.applyWorkspace(targetWorkspace)
+                                }
+                            }
+                        }
+                    }
+                )
+
+                if (isExpanded) {
+                    RenderTabStructure(
+                        structure = node.tabStructure,
+                        workspaceId = node.workspaceId,
+                        activeTabsProvider = activeTabsProvider,
+                        onTabClick = { activeTab ->
+                            scope.launch {
+                                // Select the tab
+                                activeTabsProvider.selectTab(activeTab.tabId, activeTab.panelId)
+                            }
+                        }
+                    )
+                }
+            }
+
+            is TabTreeNode.TabNode -> {
+                TabCardItem(
+                    activeTab = node.activeTab,
+                    activeTabsProvider = activeTabsProvider,
+                    onTabClick = {
+                        scope.launch {
+                            activeTabsProvider.selectTab(node.activeTab.tabId, node.activeTab.panelId)
+                        }
+                    },
+                    indentation = 44.dp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceFolderItem(
+    node: TabTreeNode.WorkspaceNode,
+    isExpanded: Boolean,
+    isActive: Boolean,
+    onToggleExpand: () -> Unit,
+    onWorkspaceClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colors.primary.copy(alpha = 0.1f))
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(vertical = 4.dp, horizontal = 4.dp)
+            .then(
+                if (isActive) {
+                    Modifier
+                        .background(
+                            MaterialTheme.colors.primary.copy(alpha = 0.1f),
+                            RoundedCornerShape(4.dp)
+                        )
+                        .padding(2.dp)
+                } else {
+                    Modifier
+                }
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = message,
-            fontSize = 11.sp,
-            color = MaterialTheme.colors.primary,
-            modifier = Modifier.weight(1f)
-        )
-        IconButton(
-            onClick = onDismiss,
-            modifier = Modifier.size(20.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "Dismiss",
-                modifier = Modifier.size(12.dp),
-                tint = MaterialTheme.colors.primary
-            )
-        }
-    }
-}
-
-@Composable
-private fun EmptyWorkspaceMessage(isSearching: Boolean) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
+        // Expand/collapse button
         Icon(
-            imageVector = if (isSearching) Icons.Outlined.Search else Icons.Outlined.Folder,
-            contentDescription = null,
-            modifier = Modifier.size(32.dp),
-            tint = MaterialTheme.colors.onBackground.copy(alpha = 0.3f)
+            if (isExpanded) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = if (isExpanded) "Collapse" else "Expand",
+            modifier = Modifier
+                .size(16.dp)
+                .clickable { onToggleExpand() },
+            tint = Color.Gray.copy(alpha = 0.7f)
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = if (isSearching) "No matching workspaces" else "No workspaces yet",
-            fontSize = 12.sp,
-            color = MaterialTheme.colors.onBackground.copy(alpha = 0.5f)
-        )
-        if (!isSearching) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Save current layout to create one",
-                fontSize = 10.sp,
-                color = MaterialTheme.colors.onBackground.copy(alpha = 0.3f)
-            )
-        }
-    }
-}
 
-@Composable
-private fun WorkspaceItem(
-    workspace: LayoutWorkspace,
-    isExpanded: Boolean,
-    isCurrent: Boolean,
-    onToggleExpand: () -> Unit,
-    onSelect: () -> Unit,
-    onDelete: () -> Unit
-) {
-    var showDeleteConfirm by remember { mutableStateOf(false) }
+        Spacer(modifier = Modifier.width(4.dp))
 
-    Column {
+        // Workspace content area (clickable)
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onSelect)
-                .background(
-                    if (isCurrent) MaterialTheme.colors.primary.copy(alpha = 0.1f)
-                    else MaterialTheme.colors.background
-                )
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .weight(1f)
+                .clickable { onWorkspaceClick() },
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Expand/collapse icon
             Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = if (isExpanded) "Collapse" else "Expand",
-                modifier = Modifier
-                    .size(16.dp)
-                    .clickable(onClick = onToggleExpand),
-                tint = MaterialTheme.colors.onSurface.copy(alpha = 0.5f)
-            )
-
-            Spacer(modifier = Modifier.width(4.dp))
-
-            // Folder icon
-            Icon(
-                imageVector = if (isExpanded) Icons.Outlined.FolderOpen else Icons.Outlined.Folder,
-                contentDescription = null,
+                Icons.Outlined.Workspaces,
+                contentDescription = "Workspace",
                 modifier = Modifier.size(16.dp),
-                tint = if (isCurrent) MaterialTheme.colors.primary
-                       else MaterialTheme.colors.onSurface.copy(alpha = 0.7f)
+                tint = MaterialTheme.colors.primary.copy(alpha = 0.8f)
             )
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // Workspace name
             Text(
-                text = workspace.name,
+                text = "${node.name}${if (isActive) " (Active)" else ""}",
                 fontSize = 12.sp,
-                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (isCurrent) MaterialTheme.colors.primary
-                        else MaterialTheme.colors.onSurface,
+                color = if (isActive) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface,
+                modifier = Modifier.weight(1f),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                overflow = TextOverflow.Ellipsis
             )
 
-            // Current indicator
-            if (isCurrent) {
-                Text(
-                    text = "Current",
-                    fontSize = 9.sp,
-                    color = MaterialTheme.colors.primary.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
-            }
-
-            // Delete button
-            IconButton(
-                onClick = { showDeleteConfirm = true },
-                modifier = Modifier.size(24.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colors.onSurface.copy(alpha = 0.4f)
-                )
-            }
-        }
-
-        // Workspace details when expanded
-        if (isExpanded) {
-            WorkspaceDetails(workspace)
-        }
-
-        // Delete confirmation dialog
-        if (showDeleteConfirm) {
-            AlertDialog(
-                onDismissRequest = { showDeleteConfirm = false },
-                title = { Text("Delete Workspace") },
-                text = { Text("Are you sure you want to delete \"${workspace.name}\"?") },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            onDelete()
-                            showDeleteConfirm = false
-                        }
-                    ) {
-                        Text("Delete", color = MaterialTheme.colors.error)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDeleteConfirm = false }) {
-                        Text("Cancel")
-                    }
-                }
+            // Tab count badge
+            Text(
+                text = "${node.tabCount}",
+                fontSize = 9.sp,
+                color = Color.Gray,
+                modifier = Modifier
+                    .background(Color(0xFF3C3F43), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp, vertical = 1.dp)
             )
         }
     }
 }
 
 @Composable
-private fun WorkspaceDetails(workspace: LayoutWorkspace) {
-    Column(
+private fun TabCardItem(
+    activeTab: ActiveTabData,
+    activeTabsProvider: ActiveTabsProvider,
+    onTabClick: () -> Unit,
+    indentation: Dp = 44.dp
+) {
+    // Get favicon using the provider - returns Painter? directly
+    val faviconCacheKey = activeTab.faviconCacheKey
+    val faviconPainter = activeTabsProvider.loadFavicon(faviconCacheKey)
+    val fallbackIcon = activeTabsProvider.getFallbackIcon(activeTab.typeId)
+
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 28.dp, end = 8.dp, bottom = 4.dp)
+            .padding(start = indentation, end = 24.dp, top = 2.dp, bottom = 2.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .clickable { onTabClick() },
+        color = Color(0xFF3C3F43),
+        elevation = 1.dp
     ) {
-        // Project path
-        if (!workspace.projectPath.isNullOrEmpty()) {
-            DetailRow(
-                label = "Project",
-                value = workspace.projectPath ?: ""
-            )
-        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Tab icon with favicon support
+            if (faviconPainter != null) {
+                Image(
+                    painter = faviconPainter,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+            } else if (fallbackIcon != null) {
+                Icon(
+                    imageVector = fallbackIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = getTabIconColor(activeTab.typeId)
+                )
+            } else {
+                Icon(
+                    imageVector = getTabIcon(activeTab.typeId),
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = getTabIconColor(activeTab.typeId)
+                )
+            }
 
-        // Panel count
-        val panelCount = countPanels(workspace)
-        if (panelCount > 0) {
-            DetailRow(
-                label = "Panels",
-                value = "$panelCount panel${if (panelCount > 1) "s" else ""}"
-            )
-        }
+            Spacer(modifier = Modifier.width(8.dp))
 
-        // Tab count
-        val tabCount = countTabs(workspace)
-        if (tabCount > 0) {
-            DetailRow(
-                label = "Tabs",
-                value = "$tabCount tab${if (tabCount > 1) "s" else ""}"
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                // Tab title
+                Text(
+                    text = activeTab.title.ifEmpty { "Untitled" },
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colors.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                // Tab URL or type
+                val tabUrl = activeTab.url
+                val subtitle = if (!tabUrl.isNullOrEmpty()) {
+                    tabUrl.removePrefix("https://").removePrefix("http://").take(50)
+                } else {
+                    activeTab.typeId
+                }
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        text = subtitle,
+                        fontSize = 9.sp,
+                        color = Color.Gray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun DetailRow(label: String, value: String) {
+private fun SplitSectionHeader(
+    sectionName: String,
+    level: Int,
+    sectionKey: String,
+    isExpanded: Boolean,
+    onToggleExpansion: () -> Unit
+) {
+    val indentation = (44 + (level * 16)).dp
+
     Row(
-        modifier = Modifier.padding(vertical = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggleExpansion() }
+            .padding(start = indentation, end = 24.dp, top = 6.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = "$label: ",
-            fontSize = 10.sp,
-            color = MaterialTheme.colors.onSurface.copy(alpha = 0.5f)
+        // Chevron icon
+        Icon(
+            imageVector = if (isExpanded) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = if (isExpanded) "Collapse" else "Expand",
+            modifier = Modifier.size(14.dp),
+            tint = Color(0xFF9CA3AF)
         )
+
+        Spacer(modifier = Modifier.width(4.dp))
+
+        // Left divider
+        Box(
+            modifier = Modifier
+                .width(16.dp)
+                .height(1.dp)
+                .background(Color(0xFF4B5563))
+        )
+
+        Spacer(modifier = Modifier.width(4.dp))
+
+        // Section name
         Text(
-            text = value,
+            text = sectionName,
             fontSize = 10.sp,
-            color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF9CA3AF),
+            letterSpacing = 0.5.sp
+        )
+
+        Spacer(modifier = Modifier.width(4.dp))
+
+        // Right divider
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(Color(0xFF4B5563))
         )
     }
 }
 
-/**
- * Count the number of panels in a workspace layout.
- */
-private fun countPanels(workspace: LayoutWorkspace): Int {
-    return countPanelsInSplitConfig(workspace.layout)
-}
+@Composable
+private fun RenderTabStructure(
+    structure: List<WorkspaceTabStructure>,
+    workspaceId: String,
+    activeTabsProvider: ActiveTabsProvider,
+    onTabClick: (ActiveTabData) -> Unit,
+    sectionPath: String = "",
+    baseIndentation: Int = 44
+) {
+    val expandedSections by TabTreeState.expandedSections.collectAsState()
 
-/**
- * Count panels in a SplitConfig recursively.
- */
-private fun countPanelsInSplitConfig(config: SplitConfig): Int {
-    return when (config) {
-        is SplitConfig.SinglePanel -> 1
-        is SplitConfig.VerticalSplit ->
-            countPanelsInSplitConfig(config.left) + countPanelsInSplitConfig(config.right)
-        is SplitConfig.HorizontalSplit ->
-            countPanelsInSplitConfig(config.top) + countPanelsInSplitConfig(config.bottom)
+    structure.forEach { item ->
+        when (item) {
+            is WorkspaceTabStructure.TabItem -> {
+                TabCardItem(
+                    activeTab = item.activeTab,
+                    activeTabsProvider = activeTabsProvider,
+                    onTabClick = { onTabClick(item.activeTab) },
+                    indentation = baseIndentation.dp
+                )
+            }
+
+            is WorkspaceTabStructure.SplitSection -> {
+                val currentPath = if (sectionPath.isEmpty()) item.sectionName else "$sectionPath/${item.sectionName}"
+                val sectionKey = "$workspaceId:$currentPath"
+                val isExpanded = expandedSections.contains(sectionKey)
+
+                SplitSectionHeader(
+                    sectionName = item.sectionName,
+                    level = item.level,
+                    sectionKey = sectionKey,
+                    isExpanded = isExpanded,
+                    onToggleExpansion = { TabTreeState.toggleSectionExpansion(sectionKey) }
+                )
+
+                if (isExpanded) {
+                    RenderTabStructure(
+                        structure = item.children,
+                        workspaceId = workspaceId,
+                        activeTabsProvider = activeTabsProvider,
+                        onTabClick = onTabClick,
+                        sectionPath = currentPath,
+                        baseIndentation = baseIndentation + (item.level * 16)
+                    )
+                }
+            }
+        }
     }
 }
 
-/**
- * Count the total number of tabs in a workspace.
- */
-private fun countTabs(workspace: LayoutWorkspace): Int {
-    return countTabsInSplitConfig(workspace.layout)
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB ICONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+private fun getTabIcon(typeId: String): ImageVector = when {
+    typeId.contains("browser", ignoreCase = true) -> Icons.Outlined.Language
+    typeId.contains("terminal", ignoreCase = true) -> Icons.Outlined.Terminal
+    typeId.contains("editor", ignoreCase = true) -> Icons.Outlined.Code
+    else -> Icons.Outlined.Tab
 }
 
-/**
- * Count tabs in a SplitConfig recursively.
- */
-private fun countTabsInSplitConfig(config: SplitConfig): Int {
-    return when (config) {
-        is SplitConfig.SinglePanel -> config.panel.tabs.size
-        is SplitConfig.VerticalSplit ->
-            countTabsInSplitConfig(config.left) + countTabsInSplitConfig(config.right)
-        is SplitConfig.HorizontalSplit ->
-            countTabsInSplitConfig(config.top) + countTabsInSplitConfig(config.bottom)
-    }
+@Composable
+private fun getTabIconColor(typeId: String): Color = when {
+    typeId.contains("browser", ignoreCase = true) -> Color(0xFF4285F4)
+    typeId.contains("terminal", ignoreCase = true) -> Color(0xFF4EAA25)
+    typeId.contains("editor", ignoreCase = true) -> Color(0xFFE06C75)
+    else -> MaterialTheme.colors.onSurface.copy(alpha = 0.7f)
 }
