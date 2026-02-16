@@ -12,7 +12,7 @@ import ai.rever.boss.plugin.api.PluginContext
 class TopofmindDynamicPlugin : DynamicPlugin {
     override val pluginId: String = "ai.rever.boss.plugin.dynamic.topofmind"
     override val displayName: String = "Top of Mind (Dynamic)"
-    override val version: String = "1.0.8"
+    override val version: String = "1.0.9"
     override val description: String = "View and switch between active tabs across workspaces"
     override val author: String = "Risa Labs"
     override val url: String = "https://github.com/risa-labs-inc/boss-plugin-topofmind"
