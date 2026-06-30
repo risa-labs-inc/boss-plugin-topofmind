@@ -7,6 +7,7 @@ import ai.rever.boss.plugin.api.WorkspaceDataProvider
 import ai.rever.boss.plugin.scrollbar.getPanelScrollbarConfig
 import ai.rever.boss.plugin.scrollbar.lazyListScrollbar
 import ai.rever.boss.plugin.ui.BossTheme
+import ai.rever.boss.plugin.ui.BossThemeColors
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -70,7 +71,7 @@ fun TopOfMindContent(
 private fun NoProviderMessage() {
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Color(0xFF2B2D30)
+        color = BossThemeColors.SurfaceColor
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -153,7 +154,7 @@ private fun ActiveTabsTreeContent(
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Color(0xFF2B2D30)
+        color = BossThemeColors.SurfaceColor
     ) {
         Column(
             modifier = Modifier
@@ -179,7 +180,7 @@ private fun ActiveTabsTreeContent(
                 Text(
                     text = "Running Workspaces",
                     fontSize = 10.sp,
-                    color = Color.Gray,
+                    color = BossThemeColors.TextSecondary,
                     modifier = Modifier.weight(1f)
                 )
 
@@ -206,7 +207,7 @@ private fun ActiveTabsTreeContent(
                             if (searchQuery.isNotBlank()) Icons.Outlined.Search else Icons.Outlined.Tab,
                             contentDescription = null,
                             modifier = Modifier.size(32.dp),
-                            tint = Color.Gray.copy(alpha = 0.5f)
+                            tint = BossThemeColors.TextMuted.copy(alpha = 0.5f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
@@ -214,7 +215,7 @@ private fun ActiveTabsTreeContent(
                                 "No tabs matching \"$searchQuery\""
                             else
                                 "No active tabs",
-                            color = Color.Gray,
+                            color = BossThemeColors.TextSecondary,
                             fontSize = 12.sp
                         )
                     }
@@ -258,7 +259,7 @@ private fun SearchBar(
             .fillMaxWidth()
             .height(28.dp)
             .clip(RoundedCornerShape(4.dp))
-            .background(Color(0xFF1E1F22))
+            .background(BossThemeColors.BackgroundColor)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -266,7 +267,7 @@ private fun SearchBar(
             imageVector = Icons.Outlined.Search,
             contentDescription = null,
             modifier = Modifier.size(14.dp),
-            tint = Color.Gray.copy(alpha = 0.6f)
+            tint = BossThemeColors.TextSecondary.copy(alpha = 0.6f)
         )
         Spacer(modifier = Modifier.width(6.dp))
         BasicTextField(
@@ -276,7 +277,7 @@ private fun SearchBar(
             singleLine = true,
             textStyle = TextStyle(
                 fontSize = 11.sp,
-                color = Color.White
+                color = BossThemeColors.TextPrimary
             ),
             cursorBrush = SolidColor(MaterialTheme.colors.primary),
             decorationBox = { innerTextField ->
@@ -285,7 +286,7 @@ private fun SearchBar(
                         Text(
                             text = placeholder,
                             fontSize = 11.sp,
-                            color = Color.Gray.copy(alpha = 0.5f)
+                            color = BossThemeColors.TextMuted.copy(alpha = 0.5f)
                         )
                     }
                     innerTextField()
@@ -299,7 +300,7 @@ private fun SearchBar(
                 modifier = Modifier
                     .size(14.dp)
                     .clickable { onQueryChange("") },
-                tint = Color.Gray.copy(alpha = 0.6f)
+                tint = BossThemeColors.TextSecondary.copy(alpha = 0.6f)
             )
         }
     }
@@ -412,7 +413,7 @@ private fun WorkspaceFolderItem(
             modifier = Modifier
                 .size(16.dp)
                 .clickable { onToggleExpand() },
-            tint = Color.Gray.copy(alpha = 0.7f)
+            tint = BossThemeColors.TextSecondary.copy(alpha = 0.7f)
         )
 
         Spacer(modifier = Modifier.width(4.dp))
@@ -446,9 +447,9 @@ private fun WorkspaceFolderItem(
             Text(
                 text = "${node.tabCount}",
                 fontSize = 9.sp,
-                color = Color.Gray,
+                color = BossThemeColors.TextSecondary,
                 modifier = Modifier
-                    .background(Color(0xFF3C3F43), RoundedCornerShape(4.dp))
+                    .background(BossThemeColors.SurfaceColor, RoundedCornerShape(4.dp))
                     .padding(horizontal = 4.dp, vertical = 1.dp)
             )
         }
@@ -473,7 +474,7 @@ private fun TabCardItem(
             .padding(start = indentation, end = 24.dp, top = 2.dp, bottom = 2.dp)
             .clip(RoundedCornerShape(4.dp))
             .clickable { onTabClick() },
-        color = Color(0xFF3C3F43),
+        color = BossThemeColors.SurfaceColor,
         elevation = 1.dp
     ) {
         Row(
@@ -528,7 +529,7 @@ private fun TabCardItem(
                     Text(
                         text = subtitle,
                         fontSize = 9.sp,
-                        color = Color.Gray,
+                        color = BossThemeColors.TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -560,7 +561,7 @@ private fun SplitSectionHeader(
             imageVector = if (isExpanded) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = if (isExpanded) "Collapse" else "Expand",
             modifier = Modifier.size(14.dp),
-            tint = Color(0xFF9CA3AF)
+            tint = BossThemeColors.TextSecondary
         )
 
         Spacer(modifier = Modifier.width(4.dp))
@@ -570,7 +571,7 @@ private fun SplitSectionHeader(
             modifier = Modifier
                 .width(16.dp)
                 .height(1.dp)
-                .background(Color(0xFF4B5563))
+                .background(BossThemeColors.BorderColor)
         )
 
         Spacer(modifier = Modifier.width(4.dp))
@@ -580,7 +581,7 @@ private fun SplitSectionHeader(
             text = sectionName,
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF9CA3AF),
+            color = BossThemeColors.TextSecondary,
             letterSpacing = 0.5.sp
         )
 
@@ -591,7 +592,7 @@ private fun SplitSectionHeader(
             modifier = Modifier
                 .weight(1f)
                 .height(1.dp)
-                .background(Color(0xFF4B5563))
+                .background(BossThemeColors.BorderColor)
         )
     }
 }
