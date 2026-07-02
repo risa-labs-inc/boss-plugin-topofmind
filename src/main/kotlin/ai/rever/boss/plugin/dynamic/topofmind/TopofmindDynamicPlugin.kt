@@ -28,5 +28,7 @@ class TopofmindDynamicPlugin : DynamicPlugin {
                 scope = context.pluginScope
             )
         }
+        // Contribute tabs_list/tab_focus/tab_close/tab_open_url MCP tools; auto-removed on disable/unload.
+        context.registerMcpToolProvider(TopofmindMcpToolProvider(pluginId, context.activeTabsProvider))
     }
 }
