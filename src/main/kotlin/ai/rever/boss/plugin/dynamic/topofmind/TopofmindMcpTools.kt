@@ -19,15 +19,18 @@ internal class TopofmindMcpToolProvider(
     override fun tools(): List<McpToolDefinition> = listOf(
         McpToolDefinition(
             name = "tabs_list",
-            description = "List all active tabs across every workspace (tab id, title, type, workspace, url).",
+            description = "List all active tabs across every workspace (tab id, title, type, " +
+                "workspace, which panel/window/split it's in, url).",
             handler = McpToolHandler {
                 val p = activeTabsProvider ?: return@McpToolHandler unavailable()
                 p.refreshTabs()
                 val tabs = p.activeTabs.value
                 if (tabs.isEmpty()) return@McpToolHandler McpToolResult("No active tabs.")
                 McpToolResult(tabs.joinToString("\n") { t ->
+                    val split = t.splitPosition?.let { " split=$it" } ?: ""
                     val url = t.url?.let { " <$it>" } ?: ""
-                    "${t.tabId}  [${t.typeId}]  ${t.title}  (${t.workspaceName})$url"
+                    "${t.tabId}  [${t.typeId}]  ${t.title}  (${t.workspaceName})  " +
+                        "panel=${t.panelId} window=${t.windowId}$split$url"
                 })
             },
         ),
@@ -38,7 +41,7 @@ internal class TopofmindMcpToolProvider(
             readOnly = false,
             handler = McpToolHandler { args ->
                 val p = activeTabsProvider ?: return@McpToolHandler unavailable()
-                val id = args.string("tab_id")
+                val id = args.string("tab_id")?.takeIf { it.isNotBlank() }
                     ?: return@McpToolHandler McpToolResult("Missing required argument: tab_id", isError = true)
                 val tab = p.activeTabs.value.firstOrNull { it.tabId == id }
                     ?: return@McpToolHandler McpToolResult("No active tab with id $id", isError = true)
