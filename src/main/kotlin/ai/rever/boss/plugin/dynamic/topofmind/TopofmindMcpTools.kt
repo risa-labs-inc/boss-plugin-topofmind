@@ -27,10 +27,10 @@ internal class TopofmindMcpToolProvider(
                 val tabs = p.activeTabs.value
                 if (tabs.isEmpty()) return@McpToolHandler McpToolResult("No active tabs.")
                 McpToolResult(tabs.joinToString("\n") { t ->
-                    val split = t.splitPosition?.let { " split=$it" } ?: ""
                     val url = t.url?.let { " <$it>" } ?: ""
-                    "${t.tabId}  [${t.typeId}]  ${t.title}  (${t.workspaceName})  " +
-                        "panel=${t.panelId} window=${t.windowId}$split$url"
+                    val split = t.splitPosition?.let { " split=$it" } ?: ""
+                    "${t.tabId}  [${t.typeId}]  ${t.title}  (${t.workspaceName})$url" +
+                        "  panel=${t.panelId} window=${t.windowId}$split"
                 })
             },
         ),
