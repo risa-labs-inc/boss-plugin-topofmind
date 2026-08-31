@@ -4,16 +4,20 @@ import ai.rever.boss.plugin.api.DynamicPlugin
 import ai.rever.boss.plugin.api.PluginContext
 
 /**
- * Top of Mind dynamic plugin - Loaded from external JAR.
+ * Top of Mind dynamic plugin - loaded from an external JAR.
  *
- * Displays currently running/active tabs across all workspaces.
- * Uses activeTabsProvider, workspaceDataProvider and splitViewOperations from PluginContext.
+ * Shows every tab this window is running, across every workspace, and lets one be moved between
+ * them. Also owns the generic `tabs_*` MCP tools.
  */
 class TopofmindDynamicPlugin : DynamicPlugin {
     override val pluginId: String = "ai.rever.boss.plugin.dynamic.topofmind"
     override val displayName: String = "Top of Mind (Dynamic)"
-    override val version: String = "1.0.9"
-    override val description: String = "View and switch between active tabs across workspaces"
+
+    // Kept in step with build.gradle.kts, which processResources treats as the single source of
+    // truth for plugin.json. This copy is read by the host's plugin list and had drifted five
+    // releases behind.
+    override val version: String = "1.2.0"
+    override val description: String = "View, switch between and move active tabs across workspaces"
     override val author: String = "Risa Labs"
     override val url: String = "https://github.com/risa-labs-inc/boss-plugin-topofmind"
 
@@ -25,10 +29,15 @@ class TopofmindDynamicPlugin : DynamicPlugin {
                 activeTabsProvider = context.activeTabsProvider,
                 workspaceDataProvider = context.workspaceDataProvider,
                 splitViewOperations = context.splitViewOperations,
-                scope = context.pluginScope
+                // The host renders this natively (a real NSMenu on macOS), which is what lets
+                // "Move to workspace" be a submenu rather than a hand-drawn popup.
+                contextMenuProvider = context.contextMenuProvider,
+                scope = context.pluginScope,
             )
         }
-        // Contribute tabs_list/tab_focus/tab_close/tab_open_url MCP tools; auto-removed on disable/unload.
-        context.registerMcpToolProvider(TopofmindMcpToolProvider(pluginId, context.activeTabsProvider))
+        // Contribute tabs_list/tab_focus/tab_close/tab_open_url/tab_move; auto-removed on unload.
+        context.registerMcpToolProvider(
+            TopofmindMcpToolProvider(pluginId, context.activeTabsProvider, context.workspaceDataProvider),
+        )
     }
 }
