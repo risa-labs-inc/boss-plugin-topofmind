@@ -8,6 +8,7 @@ import ai.rever.boss.plugin.ui.BossThemeColors
 import ai.rever.boss.plugin.ui.ContextMenuItemData
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.hoverable
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Icon
 import androidx.compose.material.Text
@@ -34,13 +36,20 @@ import androidx.compose.material.icons.outlined.Tab
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Workspaces
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
+import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -64,8 +73,11 @@ internal val ROW_ICON = 14.dp
 // these rows sit on the panel surface, not on the content floor.
 private const val HOVER_FILL_ALPHA = 0.55f
 private const val UNSELECTED_TEXT_ALPHA = 0.8f
-private const val DRAG_SOURCE_ALPHA = 0.35f
+private const val DRAG_SOURCE_ALPHA = 0.3f
 private const val MOVED_FLASH_ALPHA = 0.28f
+private const val GHOST_ALPHA = 0.95f
+private val GHOST_MAX_WIDTH = 220.dp
+private val GHOST_LEAD = 10.dp
 
 /**
  * One tab in the tree.
@@ -129,6 +141,10 @@ internal fun TabRow(
             Modifier
                 .fillMaxWidth()
                 .height(ROW_HEIGHT)
+                // The row a drag picked up fades right down, because the ghost under the cursor is
+                // now the thing carrying it. Dimming only the icon (which is what this did) left
+                // the row looking untouched, so a drag in progress was invisible from the source.
+                .alpha(if (isDragSource) DRAG_SOURCE_ALPHA else 1f)
                 .then(contextMenuModifier)
                 .then(dragModifier)
                 .background(fill, ROW_RADIUS)
@@ -144,7 +160,7 @@ internal fun TabRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(ROW_ITEM_GAP),
         ) {
-            TabGlyph(tab, activeTabsProvider, dimmed = isDragSource)
+            TabGlyph(tab, activeTabsProvider)
 
             Text(
                 text = tab.title.ifEmpty { "Untitled" },
@@ -224,9 +240,7 @@ private fun rememberTabDragModifier(
 private fun TabGlyph(
     tab: ActiveTabData,
     activeTabsProvider: ActiveTabsProvider,
-    dimmed: Boolean,
 ) {
-    val alpha = if (dimmed) DRAG_SOURCE_ALPHA else 1f
     val favicon = activeTabsProvider.loadFavicon(tab.faviconCacheKey)
     val fallback = activeTabsProvider.getFallbackIcon(tab.typeId)
     val modifier = Modifier.size(ROW_ICON)
@@ -239,14 +253,14 @@ private fun TabGlyph(
                 imageVector = fallback,
                 contentDescription = null,
                 modifier = modifier,
-                tint = tabIconTint(tab.typeId).copy(alpha = alpha),
+                tint = tabIconTint(tab.typeId),
             )
         else ->
             Icon(
                 imageVector = tabIcon(tab.typeId),
                 contentDescription = null,
                 modifier = modifier,
-                tint = tabIconTint(tab.typeId).copy(alpha = alpha),
+                tint = tabIconTint(tab.typeId),
             )
     }
 }
@@ -313,3 +327,81 @@ internal fun tabIconTint(typeId: String): Color =
         typeId.contains("editor", ignoreCase = true) -> BossThemeColors.SecondaryColor
         else -> BossThemeColors.TextSecondary
     }
+
+/**
+ * The tab under the cursor while a drag is in flight.
+ *
+ * Without one, a drag showed only its two endpoints: the source row dimmed and the target header
+ * lit up. Between them there was nothing to say what was being carried, or that a drag was
+ * happening at all once the pointer left the row it started on.
+ *
+ * Drawn by the panel, not by the row, and for the reason that matters: a row lives inside a
+ * `LazyColumn` and is clipped to it, so a ghost emitted there would be cut off at the row's own
+ * bounds and would scroll away with it. This is a sibling of the list, laid over the whole panel.
+ *
+ * Placement is [pointer] minus [panelOrigin], both in window coordinates: the drag reports where
+ * the finger is in the window, and this Box needs an offset inside the panel. It sits down and to
+ * the right of the cursor so the pointer itself stays visible, and it never intercepts anything -
+ * no pointer-input modifier, so hit-testing for the drop target passes straight through it.
+ */
+@Composable
+internal fun TabDragGhost(
+    dragState: TabDragState,
+    activeTabsProvider: ActiveTabsProvider,
+    panelOrigin: Offset,
+) {
+    val tab = dragState.dragging ?: return
+
+    // Two deliberate choices about WHERE each value is read, because a drag updates the pointer
+    // every frame and a naive read would recompose the whole tree at that rate.
+    //
+    // - The position is read inside `offset { }`, which runs in the LAYOUT phase. The ghost moves
+    //   without anything recomposing at all.
+    // - `overTarget` goes through derivedStateOf, so crossing a header recomposes this Row once
+    //   rather than on every pixel of travel: hoveredWorkspaceId reads the pointer, so reading it
+    //   directly would make the boolean a per-frame subscription to a value that rarely changes.
+    val overTarget by remember(dragState) {
+        derivedStateOf { dragState.hoveredWorkspaceId != null }
+    }
+
+    Row(
+        modifier =
+            Modifier
+                .offset {
+                    val pointer = dragState.pointer
+                    if (pointer == Offset.Unspecified) {
+                        IntOffset.Zero
+                    } else {
+                        IntOffset(
+                            x = (pointer.x - panelOrigin.x).roundToInt() + GHOST_LEAD.roundToPx(),
+                            y = (pointer.y - panelOrigin.y).roundToInt() - (ROW_HEIGHT / 2).roundToPx(),
+                        )
+                    }
+                }.widthIn(max = GHOST_MAX_WIDTH)
+                .height(ROW_HEIGHT)
+                .alpha(GHOST_ALPHA)
+                .clip(ROW_RADIUS)
+                .background(BossColors.darkSurface)
+                .border(
+                    width = 1.dp,
+                    // The border is the answer to "will this drop": accent over a workspace that
+                    // will take it, a quiet line everywhere else. Cheaper to read than looking
+                    // away from the cursor to check whether a header lit up.
+                    color = if (overTarget) BossThemeColors.AccentColor else BossThemeColors.BorderColor,
+                    shape = ROW_RADIUS,
+                ).padding(horizontal = ROW_INSET),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ROW_ITEM_GAP),
+    ) {
+        TabGlyph(tab, activeTabsProvider)
+        Text(
+            text = tab.title.ifEmpty { "Untitled" },
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = BossThemeColors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            softWrap = false,
+        )
+    }
+}

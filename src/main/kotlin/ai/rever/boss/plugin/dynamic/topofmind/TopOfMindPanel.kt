@@ -36,6 +36,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -138,7 +141,14 @@ private fun TabTree(
         }
     }
 
+    // The panel's own position in the window. The drag reports the pointer in window coordinates
+    // (a row and a workspace header share no parent, so nothing else is comparable), and the ghost
+    // is placed inside this Box - so one of the two has to be converted, and this is the only place
+    // that knows the offset between them.
+    var panelOrigin by remember { mutableStateOf(Offset.Zero) }
+
     Surface(modifier = Modifier.fillMaxSize(), color = BossThemeColors.SurfaceColor) {
+        Box(modifier = Modifier.fillMaxSize().onGloballyPositioned { panelOrigin = it.boundsInWindow().topLeft }) {
         Column(modifier = Modifier.fillMaxSize()) {
             BossSearchBar(
                 query = searchQuery,
@@ -200,6 +210,15 @@ private fun TabTree(
                     }
                 }
             }
+        }
+
+        // Last child, so it paints over the list rather than under it. Outside the LazyColumn on
+        // purpose: a ghost emitted from a row would be clipped to that row and would scroll with it.
+        TabDragGhost(
+            dragState = dragState,
+            activeTabsProvider = activeTabsProvider,
+            panelOrigin = panelOrigin,
+        )
         }
     }
 }
