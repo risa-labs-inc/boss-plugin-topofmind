@@ -53,6 +53,11 @@ private val HEADER_TRACKING = 0.8.sp
 private const val COUNT_ALPHA = 0.7f
 private const val DROP_TARGET_FILL_ALPHA = 0.22f
 
+// The vertical tab bar's selected fill, same token and same alpha (BossTabButton's
+// SELECTED_FILL_ALPHA): an accent wash rather than a solid, because the row sits on the panel
+// surface and a solid block at this width reads as a button.
+private const val CURRENT_FILL_ALPHA = 0.16f
+
 /**
  * A workspace group header, and the drop target for moving a tab into that workspace.
  *
@@ -92,8 +97,13 @@ internal fun WorkspaceHeader(
                         .height(HEADER_HEIGHT)
                         .clip(RoundedCornerShape(3.dp))
                         .background(
+                            // Order matches BossTabButton: a live drop beats everything, then
+                            // the current workspace, then hover. Selection outranking hover is
+                            // the tab bar's rule too - hovering the row you are already on
+                            // should not dim the marker that says so.
                             when {
                                 isDropTarget -> BossThemeColors.AccentColor.copy(alpha = DROP_TARGET_FILL_ALPHA)
+                                isCurrent -> BossThemeColors.AccentColor.copy(alpha = CURRENT_FILL_ALPHA)
                                 isHovered -> BossColors.darkSurface
                                 else -> Color.Transparent
                             },
