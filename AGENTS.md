@@ -268,20 +268,40 @@ fixed-height block between the tree and the footer. The tree says where a tab is
 workspace and its pane; this says it as a shape. Clicking a floor switches to that workspace,
 through the same `switchToWorkspace` the workspace headers use.
 
-- **It is a FRONT ELEVATION - flat rectangles, no projection - and getting there cost five
-  rewrites.** It was isometric first: a plate seen from above with two extruded faces. Every version
-  of it foundered on one corner. Two identical boxes stacked with no gap hide each other's top faces
-  exactly, so any version that showed a lower workspace's plate was drawing a thing that cannot
-  exist, and that plate's back-right corner had nowhere to go. It came back as a wedge poking out
-  past the face above, then as a flat crop when the clip was a rectangle, then as a column, then as
-  a skirt, then as a step where each lower plate grew deeper. Each was rejected on sight. A front
-  elevation has no such corner: floors are rectangles, they stack, the drawing is finished - and it
-  says the same three things at half the height. **If someone proposes making it 3D again, this
-  paragraph is the reason not to.**
-- **The panes need no transform.** `WorkspaceFloorPlan.panesOf` answers in a 0..1 box, so in a front
-  elevation the fractions ARE the rectangle: a left/right split draws as two columns, a top/bottom
-  one as two rows. The isometric version existed to make that box look like a plate seen from above,
-  which is the only thing the projection ever bought.
+- **A floor is a shallow BOX, seen head on and a little from above.** A front face carries the
+  workspace name and its panes; a thin top face and a thin right face recede back-and-up off it. The
+  depth is ONE vector - `FLOOR_DEPTH_X` 8dp across, `FLOOR_DEPTH_Y` 4dp up, about tan(30 degrees),
+  which is the isometric ratio - applied to every corner, so vertical world edges stay vertical on
+  screen and every storey is the same box drawn in the same place. It is paid once for the whole
+  building, not once per storey, so eight workspaces cost the same 8dp of width as one does. It is
+  meant to read as a bar with a little solidity, not as a slab: "slightly" is the whole brief.
+- **Why this does not hit the trap that killed five rewrites.** The view was an isometric PLATE
+  first: the panes lived on a top face seen from above, with extruded faces hanging off it. Every
+  version of that foundered on one corner, because two identical boxes stacked with no air between
+  them hide each other's top faces exactly - so any version that showed a lower workspace's plate
+  was drawing a thing that cannot exist, and that plate's back-right corner had nowhere to go. It
+  came back as a wedge poking out past the face above, then as a flat crop when the clip was a
+  rectangle, then as a column, then as a skirt, then as a step where each lower plate grew deeper.
+  **Each of the five was rejected on sight, and that is the reason not to push the projection any
+  further than it goes now.** What makes the current depth safe is that it is the opposite model:
+  the panes stay on the FRONT face, and each box's whole silhouette - front, top and side - is laid
+  out inside its own floor band. The depth comes OUT of the band rather than being added on top of
+  it, so `FLOOR_GAP` stays air that nothing is drawn into, no floor can occlude another, and there
+  is no impossible corner to resolve. Deepen it far enough and the top faces close that air up
+  again, which is where the old failure is waiting.
+- **The panes need no transform, and skewing them is exactly the old mistake.**
+  `WorkspaceFloorPlan.panesOf` answers in a 0..1 box, so on the front face the fractions ARE the
+  rectangle: a left/right split draws as two columns, a top/bottom one as two rows, which is what
+  those words mean. The name is on the same face and unskewed, its padding giving back exactly the
+  room the two receding faces took. Text sliding onto a receding face is text on a wall that is not
+  facing the reader.
+- **The receding faces are SHADING of the front one, not colours of their own.** Each is a blend of
+  what the front face reads as - the floor's ground plus whatever wash the panes lay over it - with
+  the side going 35% toward black and the top 10% toward white, so three flat quadrilaterals read as
+  one solid and a lit floor is lit on all three faces. Shading off the bare ground instead gave the
+  current floor a top face darker than its own front, which read as a shadow between two bars.
+  An early version painted the side in `BossThemeColors.BackgroundColor`, a token with nothing to do
+  with the floor, and it read as a hole punched in the bar.
 - **Structurally true, schematically proportioned.** Which panes there are and which side each one
   is on is exact. The PROPORTIONS are not, and cannot be: `paneAreaFor` maps a pane's NAME back to
   a rectangle, and a name says which edges a pane touches and nothing about where the divider sits,
@@ -294,7 +314,8 @@ through the same `switchToWorkspace` the workspace headers use.
   number in here used to be a constant, so six workspaces drew a block six times as tall as one and
   pushed the tree out of the panel a row at a time. `floorMetricsFor(count)` solves
   `height = count * floor + (count - 1) * FLOOR_GAP` for the floor. Only the FLOOR is dynamic; the
-  3dp of air between two of them is the same at every stack size.
+  3dp of air between two of them is the same at every stack size. The depth changes none of this -
+  a floor's BAND is still `FloorMetrics.height`, and the box is drawn to fit inside it.
 - **Two clamps give the fixed height up, each in a chosen direction.** The height is exact for three
   or four workspaces. `MAX_FLOOR` (48dp) stops one or two drawing enormous bars; the stack is then
   SHORTER than 140dp and the tree gets the difference. `MIN_FLOOR` (26dp) stops a dozen becoming
