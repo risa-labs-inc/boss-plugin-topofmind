@@ -14,6 +14,9 @@ import ai.rever.boss.plugin.ui.BossSearchBar
 import ai.rever.boss.plugin.ui.BossTheme
 import ai.rever.boss.plugin.ui.BossThemeColors
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,6 +69,7 @@ fun TopOfMindContent(
     genericDialogProvider: GenericDialogProvider?,
     treeState: TabTreeState,
     dragState: TabDragState,
+    paneExpansion: SplitPaneExpansion,
     scope: CoroutineScope,
 ) {
     BossTheme {
@@ -89,6 +93,7 @@ fun TopOfMindContent(
                 genericDialogProvider = genericDialogProvider,
                 treeState = treeState,
                 dragState = dragState,
+                paneExpansion = paneExpansion,
                 scope = scope,
             )
         }
@@ -106,6 +111,7 @@ private fun TabTree(
     genericDialogProvider: GenericDialogProvider?,
     treeState: TabTreeState,
     dragState: TabDragState,
+    paneExpansion: SplitPaneExpansion,
     scope: CoroutineScope,
 ) {
     val activeTabs by activeTabsProvider.activeTabs.collectAsState()
@@ -127,6 +133,12 @@ private fun TabTree(
     LaunchedEffect(treeNodes, currentWorkspaceId) {
         treeState.syncDefaultExpansion(treeNodes, currentWorkspaceId)
     }
+
+    // Panes come and go and [SplitPaneExpansion] is keyed by panel id, but nothing tells it when
+    // one closes. Called on every rebuild, which is where the panel learns a pane is gone: a Set
+    // compares by value, so this restarts only when the panes themselves change.
+    val livePanelIds = remember(activeTabs) { activeTabs.map { it.panelId }.toSet() }
+    LaunchedEffect(livePanelIds) { paneExpansion.retainOnly(livePanelIds) }
 
     val visibleNodes =
         remember(treeNodes, searchQuery) {
@@ -180,8 +192,22 @@ private fun TabTree(
     // that knows the offset between them.
     var panelOrigin by remember { mutableStateOf(Offset.Zero) }
 
+    // Leaving the PANEL is what drops the hover choice, and the whole panel is the only boundary
+    // the sticky-hover model cares about - see [SplitPaneExpansion]. Per-section exits are exactly
+    // what it must not react to: moving from a header down onto the rows it revealed leaves that
+    // header.
+    val panelInteraction = remember { MutableInteractionSource() }
+    val panelHovered by panelInteraction.collectIsHoveredAsState()
+    LaunchedEffect(panelHovered) { if (!panelHovered) paneExpansion.panelExited() }
+
     Surface(modifier = Modifier.fillMaxSize(), color = BossThemeColors.SurfaceColor) {
-        Box(modifier = Modifier.fillMaxSize().onGloballyPositioned { panelOrigin = it.boundsInWindow().topLeft }) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .hoverable(panelInteraction)
+                    .onGloballyPositioned { panelOrigin = it.boundsInWindow().topLeft },
+        ) {
         Column(modifier = Modifier.fillMaxSize()) {
             BossSearchBar(
                 query = searchQuery,
@@ -242,6 +268,12 @@ private fun TabTree(
                             contextMenuProvider = contextMenuProvider,
                             treeState = treeState,
                             dragState = dragState.takeIf { transferSupported },
+                            paneExpansion = paneExpansion,
+                            // A search has already trimmed the tree to what matched, so collapsing
+                            // a pane now would hide the very rows the user searched for. Under a
+                            // search every section is open; the collapse is a way to shorten a
+                            // list you are BROWSING.
+                            allowCollapse = searchQuery.isBlank(),
                             transferSupported = transferSupported,
                             scope = scope,
                             onMove = ::moveTab,
@@ -297,6 +329,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
     contextMenuProvider: ContextMenuProvider?,
     treeState: TabTreeState,
     dragState: TabDragState?,
+    paneExpansion: SplitPaneExpansion,
+    allowCollapse: Boolean,
     transferSupported: Boolean,
     scope: CoroutineScope,
     onMove: (ActiveTabData, String) -> Unit,
@@ -347,8 +381,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
                     activeTabsProvider = activeTabsProvider,
                     workspaceDataProvider = workspaceDataProvider,
                     contextMenuProvider = contextMenuProvider,
-                    treeState = treeState,
                     dragState = dragState,
+                    paneExpansion = paneExpansion,
+                    allowCollapse = allowCollapse,
                     transferSupported = transferSupported,
                     onMove = onMove,
                     onCloseTabs = onCloseTabs,
@@ -370,15 +405,14 @@ private fun TabStructure(
     activeTabsProvider: ActiveTabsProvider,
     workspaceDataProvider: WorkspaceDataProvider?,
     contextMenuProvider: ContextMenuProvider?,
-    treeState: TabTreeState,
     dragState: TabDragState?,
+    paneExpansion: SplitPaneExpansion,
+    allowCollapse: Boolean,
     transferSupported: Boolean,
     onMove: (ActiveTabData, String) -> Unit,
     onCloseTabs: ((String, List<ActiveTabData>) -> Unit)?,
     sectionPath: String = "",
 ) {
-    val expandedSections by treeState.expandedSections.collectAsState()
-
     structure.forEach { item ->
         when (item) {
             is WorkspaceTabStructure.TabItem -> {
@@ -412,19 +446,56 @@ private fun TabStructure(
 
             is WorkspaceTabStructure.SplitSection -> {
                 val path = if (sectionPath.isEmpty()) item.sectionName else "$sectionPath/${item.sectionName}"
-                val key = "$workspaceId:$path"
-                val isExpanded = key in expandedSections
                 // The whole subtree, not just this section's direct children: a nested split's
                 // tabs belong to the section above it too, and closing "Left" has to mean the
                 // rows drawn under "Left". Collapsed or not - a collapsed section is exactly the
                 // one you want to clear without opening it first.
                 val tabs = remember(item.children) { TabTreeBuilder.tabsIn(item.children) }
 
+                // The pane this section stands for, or null when it is a container for a nested
+                // split. Only a pane collapses: a container has no tab of its own to collapse TO.
+                val panelId = TabTreeBuilder.paneIdOf(item.children)
+
+                // The pane being worked in is always open, and is never asked about - that is a
+                // fact about the split rather than something hover decided.
+                //
+                // A workspace that is NOT on screen has no focused pane at all: `activePanelId`
+                // names a pane in the workspace the window is showing, and the panel-id match
+                // alone would light up a preserved pane behind it. The consistent reading, and
+                // the one taken here, is that EVERY pane of such a workspace is collapsed to the
+                // tab it is showing until the pointer chooses one - those workspaces are the long
+                // tail of this tree and the reason it collapses at all.
+                val isActivePane =
+                    panelId != null &&
+                        workspaceId == currentWorkspaceId &&
+                        activeTabsProvider.activePanelId == panelId
+
+                val isExpanded =
+                    panelId == null ||
+                        !allowCollapse ||
+                        isActivePane ||
+                        paneExpansion.isExpanded(panelId)
+
+                // What a collapsed pane still draws a full row for: the tab it is showing.
+                // `selectedTabId` answers for a preserved workspace too. The first tab is the
+                // fallback, because a collapsed pane with no row at all reads as an empty pane.
+                val shownTab =
+                    if (isExpanded) {
+                        null
+                    } else {
+                        // panelId is non-null here without a check: `isExpanded` is true whenever
+                        // it is null, so a collapsed section always has a pane behind it.
+                        val selected = activeTabsProvider.selectedTabId(panelId)
+                        tabs.firstOrNull { it.tabId == selected } ?: tabs.firstOrNull()
+                    }
+                val hiddenTabs = if (isExpanded) emptyList() else tabs.filter { it.tabId != shownTab?.tabId }
+
                 SplitSectionHeader(
                     sectionName = item.sectionName,
                     indentDp = INDENT_STEP * (depth + 1),
                     isExpanded = isExpanded,
-                    onToggleExpansion = { treeState.toggleSectionExpansion(key) },
+                    onToggleExpansion = panelId?.let { id -> { paneExpansion.togglePinned(id) } },
+                    onHover = panelId?.let { id -> { paneExpansion.hover(id) } },
                     onCloseAll =
                         onCloseTabs?.takeIf { tabs.isNotEmpty() }?.let { close ->
                             {
@@ -437,23 +508,46 @@ private fun TabStructure(
                         },
                 )
 
-                if (isExpanded) {
-                    TabStructure(
-                        structure = item.children,
-                        workspaceId = workspaceId,
-                        workspaceName = workspaceName,
-                        depth = depth + 1,
-                        currentWorkspaceId = currentWorkspaceId,
-                        allTabs = allTabs,
+                // Recursed through even when collapsed, with a one-item structure: the row a
+                // collapsed pane keeps is an ordinary tab row, with the same markers, menu, drag
+                // and close as any other, and building it here by hand would be a second copy of
+                // all of that drifting away from the first.
+                TabStructure(
+                    structure =
+                        if (isExpanded) {
+                            item.children
+                        } else {
+                            shownTab?.let { listOf(WorkspaceTabStructure.TabItem(it)) }.orEmpty()
+                        },
+                    workspaceId = workspaceId,
+                    workspaceName = workspaceName,
+                    depth = depth + 1,
+                    currentWorkspaceId = currentWorkspaceId,
+                    allTabs = allTabs,
+                    activeTabsProvider = activeTabsProvider,
+                    workspaceDataProvider = workspaceDataProvider,
+                    contextMenuProvider = contextMenuProvider,
+                    dragState = dragState,
+                    paneExpansion = paneExpansion,
+                    allowCollapse = allowCollapse,
+                    transferSupported = transferSupported,
+                    onMove = onMove,
+                    onCloseTabs = onCloseTabs,
+                    sectionPath = path,
+                )
+
+                // Nothing to stand in for when the pane holds one tab: it is already showing all
+                // of them, and a summary row with no marks in it is a row that says nothing.
+                if (panelId != null && hiddenTabs.isNotEmpty()) {
+                    PaneSummaryRow(
+                        hidden = hiddenTabs,
+                        // Aligned with the tab rows above it, so its chevron sits where their
+                        // icons do rather than under the header's label.
+                        indentDp = INDENT_STEP * (depth + 2),
                         activeTabsProvider = activeTabsProvider,
-                        workspaceDataProvider = workspaceDataProvider,
-                        contextMenuProvider = contextMenuProvider,
-                        treeState = treeState,
-                        dragState = dragState,
-                        transferSupported = transferSupported,
-                        onMove = onMove,
-                        onCloseTabs = onCloseTabs,
-                        sectionPath = path,
+                        onHover = { paneExpansion.hover(panelId) },
+                        onToggleExpansion = { paneExpansion.togglePinned(panelId) },
+                        onSelectTab = { tab -> activeTabsProvider.selectTab(tab.tabId, tab.panelId) },
                     )
                 }
             }

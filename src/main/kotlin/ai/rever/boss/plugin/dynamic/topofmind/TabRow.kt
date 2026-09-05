@@ -270,8 +270,15 @@ private fun rememberTabDragModifier(
         }
 }
 
+/**
+ * A tab's icon: its favicon, the host's fallback for its type, or a typed icon of our own.
+ *
+ * `internal` because the collapsed pane's summary row draws the same tab as a bare 18dp chip, and
+ * a second copy of this cascade is a second place for a favicon to stop appearing. Sized at
+ * [ROW_ICON] for both, which is the host's arrangement too: a 14dp glyph inside an 18dp chip.
+ */
 @Composable
-private fun TabGlyph(
+internal fun TabGlyph(
     tab: ActiveTabData,
     activeTabsProvider: ActiveTabsProvider,
 ) {

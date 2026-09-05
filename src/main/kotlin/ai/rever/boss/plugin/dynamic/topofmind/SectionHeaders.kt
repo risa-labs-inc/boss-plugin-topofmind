@@ -1,5 +1,7 @@
 package ai.rever.boss.plugin.dynamic.topofmind
 
+import ai.rever.boss.plugin.api.ActiveTabData
+import ai.rever.boss.plugin.api.ActiveTabsProvider
 import ai.rever.boss.plugin.ui.BossColors
 import ai.rever.boss.plugin.ui.BossThemeColors
 import androidx.compose.foundation.background
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,10 +27,13 @@ import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -79,6 +85,29 @@ private val ACTION_GLYPH = 12.dp
 private val GLYPH_WIDTH = 16.dp
 private val GLYPH_HEIGHT = 12.dp
 private val ACTION_RADIUS = RoundedCornerShape(4.dp)
+
+// The host's summary row, constant for constant (TabBarGroupHeader.kt): a 24dp row inset 8dp at
+// the start and 6dp at the end, its items 2dp apart, with 18dp chips - smaller than a tab row's
+// icon, because this row is chrome rather than content.
+private val SUMMARY_ROW_HEIGHT = 24.dp
+private val SUMMARY_ROW_INDENT = 8.dp
+private val SUMMARY_ROW_END = 6.dp
+private val SUMMARY_ROW_GAP = 2.dp
+private val SUMMARY_CHIP_SIZE = 18.dp
+private val SUMMARY_CHIP_RADIUS = RoundedCornerShape(4.dp)
+private val SUMMARY_CHEVRON = 14.dp
+private const val SUMMARY_COUNT_SP = 10
+
+// How many favicons fit before the row starts counting instead. The host's number, for the host's
+// reason: past that the row would either wrap - changing its height - or clip marks without
+// saying it had.
+private const val MAX_SUMMARY_CHIPS = 8
+
+// A chip's own hover fill. NOT `darkSurface`, which is what the row underneath is already filled
+// with once the pointer is anywhere in it - a chip in the same token would be invisible exactly
+// when it is being pointed at. `contextMenuBorder` is `lineStrong` under a menu-shaped name, the
+// same token a tab row uses for a pane's inactive selection.
+private const val SUMMARY_CHIP_HOVER_ALPHA = 0.55f
 
 private const val COUNT_ALPHA = 0.7f
 private const val DROP_TARGET_FILL_ALPHA = 0.22f
@@ -253,20 +282,18 @@ private fun Modifier.workspaceDropTarget(
  * are the same kind of row. A tracked heading and an untracked one stacked 24dp apart read as a
  * mistake rather than as a hierarchy.
  *
- * **The chevron leads the row, where the host puts its split glyph.** These sections collapse and
- * the host's panes do not, so the disclosure marker is a real difference rather than drift - and
- * it belongs at the indent, because the indent is what says how deep a section is and a staircase
- * of chevrons down the left edge is what makes that depth legible. If the glyph below is ever
- * drawn it goes BETWEEN the chevron and the label, not before it: leading with the glyph would
- * push every chevron in by 16dp plus a gap and flatten that staircase.
+ * **The row's click PINS the pane open**, it does not toggle a set of section ids. Which pane is
+ * showing all its tabs is [SplitPaneExpansion]'s question: the pane being worked in always is,
+ * hovering a header chooses which of the others is, and a click is what makes that choice survive
+ * the pointer leaving. A section standing for a nested split rather than for one pane gets neither
+ * - see [onToggleExpansion].
  *
- * **The split glyph is deliberately not drawn.** The host's is honest because it is measured from
- * the panes' real rectangles, so it follows a divider as it is dragged. Nothing here can be: the
- * structure this panel renders comes from the workspace's SAVED [SplitConfig], which carries the
- * split TREE and no ratio at all, so any rectangle drawn from it would be an invented 50/50 - a
- * confident diagram of a split the user may have dragged to 20/80, over a layout that may itself
- * be behind what is on screen. `SplitPositionGlyph`'s own KDoc makes this argument for its null
- * case, and a wrong diagram is worse than none.
+ * **The split glyph is a position marker, not a measured diagram.** The host's is honest because
+ * it is drawn from the panes' real rectangles, so it follows a divider as it is dragged. This one
+ * cannot be: the structure this panel renders comes from the workspace's SAVED [SplitConfig],
+ * which carries the split TREE and no ratio at all, so the fill is a schematic half - it says
+ * WHICH side this pane is on and nothing about how the split is actually divided. It brightens
+ * when the pane is open, which is the state a chevron used to carry.
  *
  * [onCloseAll] closes every tab under this header, and is null when there is nothing to confirm
  * with - see [WorkspaceHeader].
@@ -276,11 +303,29 @@ internal fun SplitSectionHeader(
     sectionName: String,
     indentDp: Int,
     isExpanded: Boolean,
-    onToggleExpansion: () -> Unit,
+    /**
+     * Pin this pane open, or unpin it. Null for a section that stands for a nested split rather
+     * than for one pane: it has nothing to collapse to, so its header carries no toggle rather
+     * than a click that does nothing.
+     */
+    onToggleExpansion: (() -> Unit)?,
+    /**
+     * The pointer reached this header, which CHOOSES this pane as the open one.
+     *
+     * Not "expand while hovered" - see [SplitPaneExpansion] for why that collapses the section the
+     * moment the pointer moves down onto the rows it just revealed. Null alongside a null
+     * [onToggleExpansion], for the same reason.
+     */
+    onHover: (() -> Unit)? = null,
     onCloseAll: (() -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+
+    // One interaction source doing two jobs - tinting the row and choosing the open pane - where
+    // the host keeps two. Here they are the same event read twice, and a second `hoverable` on the
+    // same row would only be a second name for it.
+    LaunchedEffect(isHovered) { if (isHovered) onHover?.invoke() }
 
     Row(
         modifier =
@@ -290,7 +335,7 @@ internal fun SplitSectionHeader(
                 .clip(HEADER_RADIUS)
                 .background(if (isHovered) BossColors.darkSurface else Color.Transparent)
                 .hoverable(interactionSource)
-                .clickable(onClick = onToggleExpansion)
+                .then(if (onToggleExpansion != null) Modifier.clickable(onClick = onToggleExpansion) else Modifier)
                 .padding(start = indentDp.dp + HEADER_START, end = HEADER_END),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(SECTION_GAP),
@@ -407,5 +452,118 @@ private fun HeaderAction(
             modifier = Modifier.size(ACTION_GLYPH),
             tint = if (isHovered) BossThemeColors.TextPrimary else BossThemeColors.TextSecondary,
         )
+    }
+}
+
+/**
+ * The row standing in for a collapsed pane's other tabs.
+ *
+ * The host's `TabGroupSummaryRow` (TabBarGroupHeader.kt), ported: 24dp tall, indented to sit under
+ * the pane's tabs rather than beside its header, its chevron where a tab row's icon is.
+ *
+ * **Favicons rather than a count.** "7 more tabs" said how many there were and nothing about what
+ * they were, so finding one meant opening the pane and reading names; a row of marks is
+ * recognisable at a glance and each one goes straight to its tab. Capped at [MAX_SUMMARY_CHIPS]
+ * with a `+N` after it, so the row is always exactly one row tall whatever the pane holds.
+ *
+ * **Hovering anywhere here opens the pane**, exactly as hovering its header does - reaching for
+ * the row of marks is reaching for what they stand for, and making the user click first was a step
+ * for nothing. Opening removes this row, which leaves the pointer over one of the tabs it just
+ * revealed, and that is fine because the choice is sticky. See [SplitPaneExpansion].
+ *
+ * The chips carry no tooltip, where the host's do: the plugin ui exposes no hover-tooltip
+ * primitive (and a raw Compose `Popup` renders behind a hardware-composited browser surface). A
+ * chip is therefore a mark you recognise or click, not one you can ask the name of - the tab's
+ * full row is one hover away on the header.
+ */
+@Composable
+internal fun PaneSummaryRow(
+    hidden: List<ActiveTabData>,
+    indentDp: Int,
+    activeTabsProvider: ActiveTabsProvider,
+    onHover: () -> Unit,
+    onToggleExpansion: () -> Unit,
+    onSelectTab: (ActiveTabData) -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    LaunchedEffect(isHovered) { if (isHovered) onHover() }
+
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(SUMMARY_ROW_HEIGHT)
+                .hoverable(interactionSource)
+                .background(if (isHovered) BossColors.darkSurface else Color.Transparent)
+                .padding(start = indentDp.dp + SUMMARY_ROW_INDENT, end = SUMMARY_ROW_END),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(SUMMARY_ROW_GAP),
+    ) {
+        // The one target on this row that is about the PANE rather than about one tab in it.
+        Icon(
+            imageVector = Icons.Default.KeyboardArrowDown,
+            contentDescription = "Show all tabs in this pane",
+            tint = BossThemeColors.TextSecondary,
+            modifier = Modifier.size(SUMMARY_CHEVRON).clickable(onClick = onToggleExpansion),
+        )
+        Spacer(modifier = Modifier.size(SUMMARY_ROW_GAP))
+
+        hidden.take(MAX_SUMMARY_CHIPS).forEach { tab ->
+            key(tab.tabId) {
+                SummaryChip(
+                    tab = tab,
+                    activeTabsProvider = activeTabsProvider,
+                    onClick = { onSelectTab(tab) },
+                )
+            }
+        }
+
+        if (hidden.size > MAX_SUMMARY_CHIPS) {
+            Text(
+                text = "+${hidden.size - MAX_SUMMARY_CHIPS}",
+                color = BossThemeColors.TextSecondary,
+                fontSize = SUMMARY_COUNT_SP.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
+ * One hidden tab, as its favicon and nothing else.
+ *
+ * The glyph is [TabGlyph], the same function a tab row draws - favicon first, the host's fallback
+ * icon next, a typed icon last - so a tab looks the same whether its row is on screen or it has
+ * been collapsed into this row. The chip is the hit target around it, 18dp to the glyph's 14dp,
+ * which is margin worth clicking rather than decoration.
+ */
+@Composable
+private fun SummaryChip(
+    tab: ActiveTabData,
+    activeTabsProvider: ActiveTabsProvider,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    Box(
+        modifier =
+            Modifier
+                .size(SUMMARY_CHIP_SIZE)
+                .clip(SUMMARY_CHIP_RADIUS)
+                .background(
+                    if (isHovered) {
+                        BossColors.contextMenuBorder.copy(alpha = SUMMARY_CHIP_HOVER_ALPHA)
+                    } else {
+                        Color.Transparent
+                    },
+                ).hoverable(interactionSource)
+                .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        TabGlyph(tab = tab, activeTabsProvider = activeTabsProvider)
     }
 }

@@ -20,7 +20,9 @@ import kotlinx.coroutines.CoroutineScope
  *
  * Expansion and drag state are held HERE, one set per mounted panel, not in top-level objects.
  * Process-global state meant two windows showing this panel shared one drag and one set of open
- * groups, so collapsing a workspace in one collapsed it in the other.
+ * groups, so collapsing a workspace in one collapsed it in the other. That is why
+ * [SplitPaneExpansion] - which pane the pointer has chosen to open - is a field here too, and not
+ * the `object` the host's equivalent could get away with being.
  */
 @Suppress("LongParameterList")
 class TopofmindComponent(
@@ -40,6 +42,7 @@ class TopofmindComponent(
     ComponentContext by ctx {
     private val treeState = TabTreeState()
     private val dragState = TabDragState()
+    private val paneExpansion = SplitPaneExpansion()
 
     @Composable
     override fun Content() {
@@ -52,6 +55,7 @@ class TopofmindComponent(
             genericDialogProvider = genericDialogProvider,
             treeState = treeState,
             dragState = dragState,
+            paneExpansion = paneExpansion,
             scope = scope,
         )
     }

@@ -4,7 +4,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Which groups in the tree are open.
+ * Which WORKSPACE groups in the tree are open.
+ *
+ * Split sections are not here: which pane is showing all its tabs is [SplitPaneExpansion], because
+ * that answer is mostly derived (the pane being worked in, plus whichever one the pointer chose)
+ * rather than a set the user edits.
  *
  * A CLASS, one instance per mounted panel (see [TopofmindComponent]), where this used to be a
  * top-level `object`. Process-global expansion meant collapsing a workspace in one window
@@ -16,10 +20,11 @@ class TabTreeState {
     private val _expandedWorkspaces = MutableStateFlow<Set<String>>(emptySet())
     val expandedWorkspaces: StateFlow<Set<String>> = _expandedWorkspaces
 
-    // Split sections, keyed "workspaceId:sectionPath". Collapsed by default: a workspace that is
-    // not split has no sections at all, and one that is usually wants its shape summarised first.
-    private val _expandedSections = MutableStateFlow<Set<String>>(emptySet())
-    val expandedSections: StateFlow<Set<String>> = _expandedSections
+    // Split sections used to have a set of their own here, toggled by clicking the header, and
+    // collapsed meant showing NOTHING under it. That is [SplitPaneExpansion]'s job now: a pane
+    // collapses to the tab it is showing rather than to nothing, the pane being worked in is
+    // always open, and hovering a header chooses which of the others is. Two notions of "this
+    // section is expanded" would have been two answers to one question.
 
     /**
      * Workspaces the user has explicitly opened or closed, keyed by workspaceId.
@@ -65,14 +70,6 @@ class TabTreeState {
                 .filter { overrides[it] ?: (it == currentWorkspaceId) }
                 .toSet()
     }
-
-    fun toggleSectionExpansion(sectionKey: String) {
-        val current = _expandedSections.value.toMutableSet()
-        if (!current.remove(sectionKey)) current.add(sectionKey)
-        _expandedSections.value = current
-    }
-
-    fun isSectionExpanded(sectionKey: String): Boolean = _expandedSections.value.contains(sectionKey)
 
     fun isWorkspaceExpanded(workspaceId: String): Boolean = _expandedWorkspaces.value.contains(workspaceId)
 }
