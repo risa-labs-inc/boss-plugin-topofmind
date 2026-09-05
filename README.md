@@ -29,6 +29,8 @@ workspace on screen is one row in it.
 - **Collapsible groups** with tab counts. The workspace on screen starts expanded and every other
   one starts collapsed; split sections start collapsed. Open or close a group yourself and it stays
   the way you left it for the rest of the session, switching workspaces included.
+- **A workspace-actions footer** pinned under the tree, mirroring the menu the host hangs off the
+  foot of its vertical tab bar.
 
 ## Moving a tab
 
@@ -48,6 +50,26 @@ Three things are deliberate:
   reappears under its new group with a brief highlight. Filing something away is the common case.
 - **The tab is not selected in its new pane.** Use the row (or `tab_focus`) if you want it foremost
   when you next go there.
+
+## The workspace footer
+
+Under the tree, behind a full-width rule, sit four icon buttons. They do not scroll with the tree.
+
+| Button | What it does |
+|---|---|
+| Open workspace | A menu of every saved workspace. A filled dot marks the one on screen, an outlined dot one this window is merely running behind it. Clicking one switches to it, preserving the layout you are leaving |
+| Save workspace | Prompts for a name and saves the current workspace under it |
+| Open workspace from file | Picks a `.json` workspace file, loads it and applies its layout |
+| Delete workspace | Pick one from a list, confirm, and it is deleted by name |
+
+A button whose provider is missing is not drawn at all, rather than shown and dead. Save and Delete
+need `genericDialogProvider` (their prompts), Open from file additionally needs
+`filePickerProvider`, and the workspace menu needs `splitViewOperations` as well as
+`workspaceDataProvider`.
+
+The host's menu has two more entries, **Open Workspace Folder** and **Reset to Default**, which are
+deliberately absent here: they need `WorkspaceManager.getWorkspaceDirectory()` and
+`WorkspaceManager.resetToDefault()`, and neither is on the plugin api's `WorkspaceDataProvider`.
 
 ## MCP tools
 
@@ -72,6 +94,8 @@ general-purpose tab surface for agents, which is broader than the panel's name s
   rather than a flat list, and what let a header click switch workspaces.
 - `contextMenuProvider` is what draws the right-click menu (a real NSMenu on macOS). Without it the
   drag still works.
+- `filePickerProvider` and `genericDialogProvider` drive the footer's actions. Each button is hidden
+  when the provider it needs is absent, so the footer shrinks rather than lying.
 - Out-of-process: the move is in-process only, so the panel hides the affordance rather than
   offering one that does nothing. It probes `supportsTabTransfer` and believes the answer.
 - No external binaries.

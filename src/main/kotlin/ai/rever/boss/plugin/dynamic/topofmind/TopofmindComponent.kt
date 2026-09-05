@@ -2,6 +2,8 @@ package ai.rever.boss.plugin.dynamic.topofmind
 
 import ai.rever.boss.plugin.api.ActiveTabsProvider
 import ai.rever.boss.plugin.api.ContextMenuProvider
+import ai.rever.boss.plugin.api.FilePickerProvider
+import ai.rever.boss.plugin.api.GenericDialogProvider
 import ai.rever.boss.plugin.api.PanelComponentWithUI
 import ai.rever.boss.plugin.api.PanelInfo
 import ai.rever.boss.plugin.api.SplitViewOperations
@@ -20,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
  * Process-global state meant two windows showing this panel shared one drag and one set of open
  * groups, so collapsing a workspace in one collapsed it in the other.
  */
+@Suppress("LongParameterList")
 class TopofmindComponent(
     ctx: ComponentContext,
     override val panelInfo: PanelInfo,
@@ -27,6 +30,11 @@ class TopofmindComponent(
     private val workspaceDataProvider: WorkspaceDataProvider?,
     private val splitViewOperations: SplitViewOperations?,
     private val contextMenuProvider: ContextMenuProvider?,
+    // The two the workspace footer needs: a file dialog to open a saved workspace with, and the
+    // host's own prompts to name a save and confirm a delete. Both nullable, both threaded through
+    // exactly like contextMenuProvider, and a missing one hides its button rather than breaking it.
+    private val filePickerProvider: FilePickerProvider?,
+    private val genericDialogProvider: GenericDialogProvider?,
     private val scope: CoroutineScope,
 ) : PanelComponentWithUI,
     ComponentContext by ctx {
@@ -40,6 +48,8 @@ class TopofmindComponent(
             workspaceDataProvider = workspaceDataProvider,
             splitViewOperations = splitViewOperations,
             contextMenuProvider = contextMenuProvider,
+            filePickerProvider = filePickerProvider,
+            genericDialogProvider = genericDialogProvider,
             treeState = treeState,
             dragState = dragState,
             scope = scope,
