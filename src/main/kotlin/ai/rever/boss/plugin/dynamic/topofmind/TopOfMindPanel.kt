@@ -70,6 +70,7 @@ fun TopOfMindContent(
     treeState: TabTreeState,
     dragState: TabDragState,
     paneExpansion: SplitPaneExpansion,
+    picker: WorkspacePickerState,
     scope: CoroutineScope,
 ) {
     BossTheme {
@@ -94,6 +95,7 @@ fun TopOfMindContent(
                 treeState = treeState,
                 dragState = dragState,
                 paneExpansion = paneExpansion,
+                picker = picker,
                 scope = scope,
             )
         }
@@ -112,6 +114,7 @@ private fun TabTree(
     treeState: TabTreeState,
     dragState: TabDragState,
     paneExpansion: SplitPaneExpansion,
+    picker: WorkspacePickerState,
     scope: CoroutineScope,
 ) {
     val activeTabs by activeTabsProvider.activeTabs.collectAsState()
@@ -293,6 +296,7 @@ private fun TabTree(
                 splitViewOperations = splitViewOperations,
                 filePickerProvider = filePickerProvider,
                 genericDialogProvider = genericDialogProvider,
+                workspacePicker = picker,
                 // Union rather than the live set alone: a workspace running under an id the saved
                 // list has never seen still has tabs in this list, and an older host answers the
                 // live-set getter with an empty default.

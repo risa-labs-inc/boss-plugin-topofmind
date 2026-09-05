@@ -41,6 +41,7 @@ TopofmindDynamicPlugin  registers the panel + the tabs_* MCP tools
 TopofmindComponent      owns TabTreeState, TabDragState and SplitPaneExpansion, one set per panel
 TopOfMindPanel          the panel: search, the tree, workspace switching, the move
 WorkspaceFooter         the workspace actions pinned under the tree
+WorkspacePicker         the picker dialog's open/closed state, and which panel a request lands on
 TabRow                  one tab: 32dp flush row, drag source, context menu
 SectionHeaders          workspace group header (also the drop target) + split section header
 TabTransfer             which workspaces a tab can move to, and the move itself
@@ -99,6 +100,32 @@ TabTreeType             tree node types
 - **A reflective probe against the host's provider does not work.** `ApiActiveTabsProviderAdapter`
   is a private class, so `getMethod(...).invoke(...)` finds the method and then throws
   `IllegalAccessException`. Call the interface member directly.
+
+### The host's workspace button opens the picker
+
+The host's `WorkspaceButton`, at the foot of its vertical tab bar, gives its LEFT click to this
+panel: it dispatches `open-workspace-picker` at this plugin's `DeepLinkActionHandler` and opens the
+panel. Its own menu is not gone, it has moved to the button's right click, because the menu's
+Options submenu is the only route in the app to Open Workspace Folder and Reset to Default.
+
+- **The handler raises the footer's dialog, not a second copy.** That dialog's visibility used to be
+  a `remember` inside `WorkspaceActionsFooter`, which is the right place while the button beside it
+  is the only thing that can open it. A caller outside the composition needs somewhere it can write,
+  so it is a `WorkspacePickerState` on `TopofmindComponent` now - panel-scoped like `TabTreeState`
+  and `TabDragState`, and **never a top-level object**: two windows must not share one dialog.
+- **`WorkspacePickerRequests` decides WHICH panel opens it.** A deep-link action carries no window
+  and the panel factory is handed no window id, so the target has to be inferred: the panel most
+  recently composed. Panels attach in a `DisposableEffect` inside `Content()`, so the list holds the
+  ones actually on screen rather than every component the host is keeping alive.
+- **A request that arrives before the panel is composed is held for a few seconds.** The host opens
+  the panel and asks in the same click, and opening a panel is an event that lands a frame or more
+  later - dropping the request because nothing was mounted yet would make the first click on a
+  closed panel do half the job.
+- **The handler returns true for its own action and false for anything else**, which is what the
+  host's registry logs on. The host reads that as "Top of Mind is here"; false is what makes its
+  button fall back to its old menu when the plugin is not installed or is disabled.
+- **No manual unregister.** `TrackingPluginContext` records a deep-link handler as a UI extension
+  and removes it when the plugin unloads, exactly as it does the MCP tools.
 
 ### The workspace footer
 

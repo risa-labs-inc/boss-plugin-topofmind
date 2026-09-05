@@ -47,6 +47,7 @@ import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.Workspaces
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -134,6 +135,17 @@ internal fun WorkspaceActionsFooter(
      * menu opens is the honest version of what it can answer.
      */
     runningWorkspaceIds: () -> Set<String>,
+    /**
+     * Whether the workspace picker is up, held by [TopofmindComponent] rather than remembered
+     * here.
+     *
+     * It was a `remember` in this function, which is right while the button below is the only
+     * thing that can open it. The host's workspace button opens it too now, through this plugin's
+     * deep-link action handler, and that caller is outside the composition entirely - so the flag
+     * has to live somewhere it can write. Panel-scoped, never process-wide: see
+     * [WorkspacePickerState].
+     */
+    workspacePicker: WorkspacePickerState,
     scope: CoroutineScope,
 ) {
     // Every action here reads or writes the workspace list, so without that provider there is no
@@ -152,8 +164,15 @@ internal fun WorkspaceActionsFooter(
     val workspaces by workspaceDataProvider.workspaces.collectAsState()
     val currentWorkspace by workspaceDataProvider.currentWorkspace.collectAsState()
 
-    var menuOpen by remember { mutableStateOf(false) }
     var running by remember { mutableStateOf(emptySet<String>()) }
+
+    // Snapshot what is running on the way OPEN, whichever door was used - the button below, or the
+    // host's workspace button reaching in through the action handler. Keyed on the visibility, so
+    // it fires on the transition and not again while the dialog is up: re-reading it under the
+    // user would move the dots around while they are reading the list.
+    LaunchedEffect(workspacePicker.visible) {
+        if (workspacePicker.visible) running = runningWorkspaceIds()
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Divider(color = BossThemeColors.BorderColor)
@@ -169,22 +188,16 @@ internal fun WorkspaceActionsFooter(
                 FooterAction(
                     icon = Icons.Outlined.Workspaces,
                     description = "Open workspace",
-                    onClick = {
-                        // Snapshot what is running on the way OPEN. A dialog outlives a couple of
-                        // refresh ticks, and re-reading it under the user would move the dots
-                        // around while they are reading the list.
-                        if (!menuOpen) running = runningWorkspaceIds()
-                        menuOpen = !menuOpen
-                    },
+                    onClick = { workspacePicker.toggle() },
                 ) {
-                    if (menuOpen) {
+                    if (workspacePicker.visible) {
                         WorkspacePickerDialog(
                             workspaces = workspaces,
                             currentWorkspaceId = currentWorkspace?.id,
                             runningWorkspaceIds = running,
-                            onDismiss = { menuOpen = false },
+                            onDismiss = { workspacePicker.close() },
                             onPick = { workspace ->
-                                menuOpen = false
+                                workspacePicker.close()
                                 // The panel's one switch, shared with a click on a workspace header.
                                 switchToWorkspace(
                                     workspaceId = workspace.id,
