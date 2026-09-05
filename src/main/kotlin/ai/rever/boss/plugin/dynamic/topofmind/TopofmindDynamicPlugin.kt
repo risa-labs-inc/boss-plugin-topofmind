@@ -32,6 +32,10 @@ class TopofmindDynamicPlugin : DynamicPlugin {
                 // The host renders this natively (a real NSMenu on macOS), which is what lets
                 // "Move to workspace" be a submenu rather than a hand-drawn popup.
                 contextMenuProvider = context.contextMenuProvider,
+                // The workspace footer's two: the host's file dialog and its prompts. Null on a
+                // host that does not offer them, which hides the buttons that need them.
+                filePickerProvider = context.filePickerProvider,
+                genericDialogProvider = context.genericDialogProvider,
                 scope = context.pluginScope,
             )
         }

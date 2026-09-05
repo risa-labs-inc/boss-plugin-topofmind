@@ -3,6 +3,8 @@ package ai.rever.boss.plugin.dynamic.topofmind
 import ai.rever.boss.plugin.api.ActiveTabData
 import ai.rever.boss.plugin.api.ActiveTabsProvider
 import ai.rever.boss.plugin.api.ContextMenuProvider
+import ai.rever.boss.plugin.api.FilePickerProvider
+import ai.rever.boss.plugin.api.GenericDialogProvider
 import ai.rever.boss.plugin.api.SplitViewOperations
 import ai.rever.boss.plugin.api.WorkspaceDataProvider
 import ai.rever.boss.plugin.scrollbar.getPanelScrollbarConfig
@@ -54,11 +56,14 @@ private val SEARCH_HEIGHT = 28.dp
 private const val INDENT_STEP = 12
 
 @Composable
+@Suppress("LongParameterList")
 fun TopOfMindContent(
     activeTabsProvider: ActiveTabsProvider?,
     workspaceDataProvider: WorkspaceDataProvider?,
     splitViewOperations: SplitViewOperations?,
     contextMenuProvider: ContextMenuProvider?,
+    filePickerProvider: FilePickerProvider?,
+    genericDialogProvider: GenericDialogProvider?,
     treeState: TabTreeState,
     dragState: TabDragState,
     scope: CoroutineScope,
@@ -80,6 +85,8 @@ fun TopOfMindContent(
                 workspaceDataProvider = workspaceDataProvider,
                 splitViewOperations = splitViewOperations,
                 contextMenuProvider = contextMenuProvider,
+                filePickerProvider = filePickerProvider,
+                genericDialogProvider = genericDialogProvider,
                 treeState = treeState,
                 dragState = dragState,
                 scope = scope,
@@ -89,11 +96,14 @@ fun TopOfMindContent(
 }
 
 @Composable
+@Suppress("LongParameterList")
 private fun TabTree(
     activeTabsProvider: ActiveTabsProvider,
     workspaceDataProvider: WorkspaceDataProvider?,
     splitViewOperations: SplitViewOperations?,
     contextMenuProvider: ContextMenuProvider?,
+    filePickerProvider: FilePickerProvider?,
+    genericDialogProvider: GenericDialogProvider?,
     treeState: TabTreeState,
     dragState: TabDragState,
     scope: CoroutineScope,
@@ -168,7 +178,10 @@ private fun TabTree(
             Spacer(modifier = Modifier.height(6.dp))
 
             if (visibleNodes.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                // weight, not fillMaxSize, for the same reason the list below takes one: the footer
+                // is a sibling in this Column and a child that claims the whole height pushes it
+                // off the bottom.
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     BossEmptyState(
                         icon = if (searchQuery.isNotBlank()) Icons.Outlined.Search else Icons.Outlined.Tab,
                         message = if (searchQuery.isNotBlank()) "No matches" else "No active tabs",
@@ -188,7 +201,10 @@ private fun TabTree(
                     state = listState,
                     modifier =
                         Modifier
-                            .fillMaxSize()
+                            // The list takes what is left AFTER the footer, so the actions stay
+                            // pinned to the bottom of the panel instead of scrolling with the tree.
+                            .fillMaxWidth()
+                            .weight(1f)
                             .lazyListScrollbar(
                                 listState = listState,
                                 direction = Orientation.Vertical,
@@ -215,6 +231,22 @@ private fun TabTree(
                     }
                 }
             }
+
+            // Last child of the Column, outside the list: the host's workspace menu, as the foot of
+            // this panel. See WorkspaceActionsFooter for what it draws and what it leaves out.
+            WorkspaceActionsFooter(
+                workspaceDataProvider = workspaceDataProvider,
+                splitViewOperations = splitViewOperations,
+                filePickerProvider = filePickerProvider,
+                genericDialogProvider = genericDialogProvider,
+                // Union rather than the live set alone: a workspace running under an id the saved
+                // list has never seen still has tabs in this list, and an older host answers the
+                // live-set getter with an empty default.
+                runningWorkspaceIds = {
+                    activeTabsProvider.liveWorkspaceIds + activeTabs.map { it.workspaceId }
+                },
+                scope = scope,
+            )
         }
 
         // Last child, so it paints over the list rather than under it. Outside the LazyColumn on
@@ -372,8 +404,11 @@ private fun TabStructure(
  *
  * All three steps, in that order, or switching away and back loses a layout - the same sequence
  * the host's own `rememberWorkspaceSwitch` performs.
+ *
+ * `internal`, not private, because the footer's workspace menu switches too and there must be ONE
+ * of these: a second copy is a second chance to drop the preserve step and lose a layout.
  */
-private fun switchToWorkspace(
+internal fun switchToWorkspace(
     workspaceId: String,
     workspaceDataProvider: WorkspaceDataProvider?,
     splitViewOperations: SplitViewOperations?,

@@ -40,6 +40,7 @@ a move is a *move of a running thing* rather than a close and reopen.
 TopofmindDynamicPlugin  registers the panel + the tabs_* MCP tools
 TopofmindComponent      owns TabTreeState and TabDragState, one set per mounted panel
 TopOfMindPanel          the panel: search, the tree, workspace switching, the move
+WorkspaceFooter         the workspace actions pinned under the tree
 TabRow                  one tab: 32dp flush row, drag source, context menu
 SectionHeaders          workspace group header (also the drop target) + split section header
 TabTransfer             which workspaces a tab can move to, and the move itself
@@ -54,7 +55,9 @@ TabTreeType             tree node types
 - Entry point: `DynamicPlugin` with `register(context)`.
 - UI: `PanelComponentWithUI` with `@Composable Content()`, Compose Multiplatform only.
 - Providers from `PluginContext` (`activeTabsProvider`, `workspaceDataProvider`,
-  `splitViewOperations`, `contextMenuProvider`) may be **null**. Degrade, never crash.
+  `splitViewOperations`, `contextMenuProvider`, `filePickerProvider`, `genericDialogProvider`) may
+  be **null**. Degrade, never crash - in the footer that means a button whose provider is absent is
+  not drawn, never drawn and dead.
 - **State is component-scoped, never a top-level `object`.** Expansion and drag both used to be
   process-global, which meant two windows showing this panel shared one drag and one set of open
   groups.
@@ -89,6 +92,42 @@ TabTreeType             tree node types
 - **A reflective probe against the host's provider does not work.** `ApiActiveTabsProviderAdapter`
   is a private class, so `getMethod(...).invoke(...)` finds the method and then throws
   `IllegalAccessException`. Call the interface member directly.
+
+### The workspace footer
+
+`WorkspaceFooter.kt` mirrors the menu the host hangs off `WorkspaceButton` at the foot of its
+vertical tab bar. Four 32dp icon buttons under a full-width rule: open a workspace, save one, open
+one from a file, delete one.
+
+- **It is a sibling of the LazyColumn, not an item in it.** The list takes `weight(1f)` and the
+  footer sits under it, so the actions stay put while the tree scrolls. The empty state takes a
+  weight for the same reason - `fillMaxSize()` there pushed the footer off the bottom.
+- **A FlowRow, not a Row.** The host's `HostActionsFlowRow` KDoc has the measurement: at 120dp a Row
+  gives its LAST child zero width rather than clipping it, so the last button silently disappears at
+  a width the user can reach by dragging.
+- **Dialogs go through `genericDialogProvider`, not hand-drawn Compose ones.** Its prompts are
+  suspend calls that return the answer, so there is no dialog-visibility state to hold, and the host
+  draws them - which is what puts them above a GPU-composited browser surface. The workspace menu is
+  the exception, because it has to mark three states per row and `ContextMenuItemData` has no
+  trailing icon: that one is a `BossPopup`, which is the same guarantee for a non-modal. **Never a
+  raw Compose `Dialog` or `Popup`** - under JxBrowser HARDWARE_ACCELERATED they render behind the
+  page.
+- **`WorkspaceDataProvider.deleteWorkspace` takes a NAME**, where the rest of the interface is keyed
+  by id. Passing an id deletes nothing and reports nothing.
+- **Open Workspace Folder and Reset to Default are deliberately omitted.** They need
+  `WorkspaceManager.getWorkspaceDirectory()` and `WorkspaceManager.resetToDefault()`; neither is on
+  `WorkspaceDataProvider`, so there is nothing to wire them to. If they are ever wanted, that is an
+  api change first. A disabled button would have been the same absence taking up room.
+- **Save cannot snapshot the live layout first.** The host's own Save calls
+  `updateCurrentWorkspace(getCurrentWorkspace())` before `saveCurrentWorkspace(name)`; nothing on
+  `SplitViewOperations` hands a plugin the layout that is on screen, so this saves whatever the host
+  is currently holding as the current workspace.
+- **Host-side, delete is currently a no-op** (BossConsole `components/plugin/providers/`
+  `WorkspaceDataProviderImpl.deleteWorkspace`): it looks the workspace up by name and then calls
+  `WorkspaceManager.deleteWorkspace(workspace.id)`, but that function matches on NAME, so nothing
+  matches. The plugin side is right; the fix belongs in the host.
+- **`liveWorkspaceIds` is a getter, not a flow**, so reading it during composition would never
+  recompose. The menu takes a snapshot as it opens, unioned with the workspace ids in the tab list.
 
 ### Colours
 
