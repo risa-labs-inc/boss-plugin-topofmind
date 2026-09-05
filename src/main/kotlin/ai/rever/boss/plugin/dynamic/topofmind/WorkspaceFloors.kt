@@ -89,10 +89,17 @@ private val SLAB_HEIGHT = PLATE_DEPTH + RISER_DEPTH
  * above it, which is where a real storey's slab goes, and the corner columns then run straight down
  * the whole building.
  *
- * 6dp: enough to close the step, small enough that what it hides is the back edge of a plate rather
- * than any of the pane rectangles on it. Zero puts the floors back to merely touching.
+ * **How much is not a free choice, and 6dp was not enough.** The step left at a seam is
+ * `(PLATE_DEPTH - FLOOR_OVERLAP) / PLATE_DEPTH * SKEW`, because the plate's left edge travels the
+ * whole skew over the whole plate depth. At 6dp of 26 that left 17dp of the 22dp step still there,
+ * which is why the storeys still read as separate. Closing it COMPLETELY means overlapping by the
+ * entire plate - identical boxes stacked with no gap hide each other's top faces exactly - and that
+ * is the version with no panes visible below the top floor, which is most of what this view is for.
+ *
+ * 16dp is the compromise: the step drops to about 8dp, and 10dp of plate is left showing, which is
+ * enough to read a two- or four-way split. Raising it further trades the panes for the silhouette.
  */
-private val FLOOR_OVERLAP = 6.dp
+private val FLOOR_OVERLAP = 16.dp
 
 /**
  * Air between the rule above the stack and its top floor.
@@ -112,12 +119,12 @@ private val BAND_HEIGHT = SLAB_HEIGHT - FLOOR_OVERLAP
  * tree back the room it does not need, and one running a dozen scrolls rather than hiding the
  * bottom of the list behind a "+N more" that cannot be clicked.
  *
- * Three. A slab is 44dp - a 26dp plate over an 18dp face with the name on it - and each one bites
- * 6dp into the storey below, so a band is 38dp and three of them plus the bottom slab's own full
- * height come to 120dp. About what the block took when a floor was 27dp of a five-storey stack,
- * with the height spent on three legible storeys instead.
+ * Four. A slab is 44dp - a 26dp plate over an 18dp face with the name on it - and each one bites
+ * 16dp into the storey below, so a band is 28dp and four of them plus the bottom slab's own full
+ * height come to 128dp. The deeper bite bought the fourth storey: the stack takes about what it did
+ * at three shallower ones, and shows one more workspace.
  */
-private const val FLOORS_VISIBLE_MAX = 3
+private const val FLOORS_VISIBLE_MAX = 4
 
 /** Nothing bites into the BOTTOM floor, so the cap has to carry one slab at its full height. */
 private val FLOORS_MAX_HEIGHT = BAND_HEIGHT * FLOORS_VISIBLE_MAX + FLOOR_OVERLAP

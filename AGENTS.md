@@ -274,9 +274,14 @@ through the same `switchToWorkspace` the workspace headers use.
   squarely above one another. That is what is drawn here, and it is why the skew is a flat 22dp for
   the whole building however many storeys it has.
 - **The numbers, so the next change can be judged against them.** 10dp of inset each side, `SKEW`
-  22dp, a 26dp plate over an 18dp riser, and each storey **bites 6dp into the one below** - so a
-  slab is 44dp, a band is 38dp, and three of them plus the bottom slab's own full height come to
-  120dp at the cap. The riser started at 4dp and the plate at 18dp, which made a storey read as a
+  22dp, a 26dp plate over an 18dp riser, and each storey **bites 16dp into the one below** - so a
+  slab is 44dp, a band is 28dp, and four of them plus the bottom slab's own full height come to
+  128dp at the cap. How deep the bite goes is not a free choice: the step left at a seam is
+  `(PLATE_DEPTH - FLOOR_OVERLAP) / PLATE_DEPTH * SKEW`, since the plate's left edge travels the
+  whole skew over the whole plate depth. 6dp of 26 left 17dp of the 22dp step, which still read as
+  separate floors; 16dp takes it to about 8dp and leaves 10dp of plate showing. Closing the step
+  entirely means overlapping by the WHOLE plate - identical boxes stacked with no gap hide each
+  other's top faces exactly - and that is the version with no panes visible below the top floor. The riser started at 4dp and the plate at 18dp, which made a storey read as a
   card with a line under it; the riser is what carries the workspace NAME now, which is most of why
   it is 18. An 8dp gap does sit under the rule ABOVE the stack, or the top plate's back edge lands
   on that rule and the two read as one line. There is no rule BELOW: a line under the building read
