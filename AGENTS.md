@@ -8,7 +8,7 @@ Every open tab across every running workspace, as a tree, with a tab movable bet
 
 - **Plugin ID**: `ai.rever.boss.plugin.dynamic.topofmind`
 - **Main Class**: `ai.rever.boss.plugin.dynamic.topofmind.TopofmindDynamicPlugin`
-- **API Version**: 1.0.87 - **Min BOSS**: 9.5.6
+- **API Version**: 1.0.88 - **Min BOSS**: 9.5.9
 
 ## Essential Commands
 

@@ -61,7 +61,7 @@ general-purpose tab surface for agents, which is broader than the panel's name s
 
 ## Requirements
 
-- BOSS >= 9.5.6, boss-plugin-api >= 1.0.87. The floor is what the **move** needs: it is a host
+- BOSS >= 9.5.9, boss-plugin-api >= 1.0.88. The floor is what the **move** needs: it is a host
   call, and `ActiveTabsProvider` is served parent-first, so an older host's copy does not have it.
 - `activeTabsProvider` is required for anything useful. Without it the panel shows a no-provider
   message and every tool returns an error.
