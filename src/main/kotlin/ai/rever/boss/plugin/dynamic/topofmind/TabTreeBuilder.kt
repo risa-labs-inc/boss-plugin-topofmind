@@ -10,6 +10,15 @@ import ai.rever.boss.plugin.workspace.SplitConfig
 object TabTreeBuilder {
 
     /**
+     * A fixed place in the list for every workspace.
+     *
+     * Name first, case-insensitively, with the workspace id as a tie-break so two workspaces
+     * sharing a name never swap places between one rebuild and the next.
+     */
+    private val workspaceOrder: Comparator<TabTreeNode.WorkspaceNode> =
+        compareBy({ it.name.lowercase() }, { it.workspaceId })
+
+    /**
      * Extract all panel IDs from layout in depth-first order
      */
     private fun extractPanelIds(layout: SplitConfig): List<String> {
@@ -92,7 +101,7 @@ object TabTreeBuilder {
     ): List<TabTreeNode> {
         // Group tabs by workspace
         val workspaceGroups = activeTabs.groupBy { it.workspaceId }
-        val rootNodes = mutableListOf<TabTreeNode>()
+        val rootNodes = mutableListOf<TabTreeNode.WorkspaceNode>()
 
         workspaceGroups.forEach { (workspaceId, tabs) ->
             val workspaceName = tabs.firstOrNull()?.workspaceName ?: "Unknown"
@@ -134,7 +143,12 @@ object TabTreeBuilder {
             rootNodes.add(workspaceNode)
         }
 
-        return rootNodes
+        // Sorted, NOT left in the order the tabs arrived in. The host emits the CURRENT
+        // workspace's tabs first and the preserved ones after, so grouping in arrival order made
+        // whichever workspace you switched to jump to the top of the panel - rows moving out from
+        // under the cursor. Which workspace is current is said with the accent stripe in
+        // WorkspaceHeader, not with position.
+        return rootNodes.sortedWith(workspaceOrder)
     }
 
     /**
