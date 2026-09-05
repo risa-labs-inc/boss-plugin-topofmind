@@ -89,6 +89,9 @@ private val ACTION_RADIUS = RoundedCornerShape(4.dp)
 // The host's summary row, constant for constant (TabBarGroupHeader.kt): a 24dp row inset 8dp at
 // the start and 6dp at the end, its items 2dp apart, with 18dp chips - smaller than a tab row's
 // icon, because this row is chrome rather than content.
+// The tab bar's gap above a group rule (WindowVerticalTabBar's GROUP_RULE_GAP).
+private val GROUP_RULE_GAP = 10.dp
+
 private val SUMMARY_ROW_HEIGHT = 24.dp
 private val SUMMARY_ROW_INDENT = 8.dp
 private val SUMMARY_ROW_END = 6.dp
@@ -318,6 +321,13 @@ internal fun SplitSectionHeader(
      */
     onHover: (() -> Unit)? = null,
     onCloseAll: (() -> Unit)? = null,
+    /**
+     * Draw the tab bar's group rule above this header.
+     *
+     * False for the first section under a workspace: the workspace header is already the boundary
+     * there, and a rule directly under it would be a second edge a few dp below the first.
+     */
+    showRuleAbove: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -327,19 +337,28 @@ internal fun SplitSectionHeader(
     // same row would only be a second name for it.
     LaunchedEffect(isHovered) { if (isHovered) onHover?.invoke() }
 
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(HEADER_HEIGHT)
-                .clip(HEADER_RADIUS)
-                .background(if (isHovered) BossColors.darkSurface else Color.Transparent)
-                .hoverable(interactionSource)
-                .then(if (onToggleExpansion != null) Modifier.clickable(onClick = onToggleExpansion) else Modifier)
-                .padding(start = indentDp.dp + HEADER_START, end = HEADER_END),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(SECTION_GAP),
-    ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // FULL BLEED, and the host argues the point: a rule of this weight inset to match the rows
+        // is indistinguishable from just another gap between them. It divides two panes, so it runs
+        // the whole width rather than starting where this pane's content does.
+        if (showRuleAbove) {
+            Divider(color = BossThemeColors.BorderColor, modifier = Modifier.padding(top = GROUP_RULE_GAP))
+        }
+
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(HEADER_HEIGHT)
+                    .clip(HEADER_RADIUS)
+                    .background(if (isHovered) BossColors.darkSurface else Color.Transparent)
+                    .hoverable(interactionSource)
+                    .then(
+                        if (onToggleExpansion != null) Modifier.clickable(onClick = onToggleExpansion) else Modifier,
+                    ).padding(start = indentDp.dp + HEADER_START, end = HEADER_END),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(SECTION_GAP),
+        ) {
         // The tab bar's split diagram, not a chevron. Losing the chevron loses nothing: the whole
         // row is the toggle, and its expanded state is already legible from whether rows follow it.
         SplitPositionGlyph(sectionName = sectionName, expanded = isExpanded)
@@ -355,12 +374,13 @@ internal fun SplitSectionHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        onCloseAll?.let { close ->
-            HeaderAction(
-                icon = Icons.Outlined.Close,
-                description = "Close every tab in $sectionName",
-                onClick = close,
-            )
+            onCloseAll?.let { close ->
+                HeaderAction(
+                    icon = Icons.Outlined.Close,
+                    description = "Close every tab in $sectionName",
+                    onClick = close,
+                )
+            }
         }
     }
 }
