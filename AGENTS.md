@@ -271,21 +271,24 @@ through the same `switchToWorkspace` the workspace headers use.
   squarely above one another. That is what is drawn here, and it is why the skew is a flat 22dp for
   the whole building however many storeys it has.
 - **The numbers, so the next change can be judged against them.** 10dp of inset each side, `SKEW`
-  22dp, plate 24dp deep with an 8dp riser and a 5dp gap, so a band is 37dp and four are on screen.
-  The riser was 4dp and the plate 18dp, which made a storey read as a card with a line under it
-  rather than as a slab; the visible count came down from five with the thickness, so the block
-  still takes roughly the 135dp of sidebar it always did. At the sidebar's usual 200dp the plate is
-  158dp wide: a two-pane split draws two 79dp blocks, a four-way split four 39dp blocks. Dragged
-  down to 120dp - which the footer's own `FlowRow` note says is reachable - the plate is 78dp and a
-  four-way split still draws four 19dp blocks. The shallow-perspective fallback (flat rectangles,
-  each slightly narrower as it recedes) was not needed: nothing here becomes a sliver, because the
-  projection's cost is a constant rather than a per-floor one.
-- **The label goes ON the plate, not beside it.** A name in its own column to the right wants about
-  60dp permanently, which at 120dp would leave the plate under 40dp - four panes of 10dp, the exact
-  illegible outcome the view exists to avoid. On the plate the name costs nothing horizontally, and
-  the pane edges stay drawn as 1dp lines underneath it. It is inset by `SKEW / 2 + 5dp` at both
-  ends, because at the plate's vertical middle its left edge has travelled half the skew inwards
-  and its right edge is half the skew short of the drawing area.
+  22dp, a 30dp plate over a 20dp riser with 6dp of air, so a band is 56dp and three are on screen -
+  168dp at the cap. The riser started at 4dp and the plate at 18dp, which made a storey read as a
+  card with a line under it; the riser is what carries the workspace NAME now, which is most of why
+  it is 20. An 8dp gap sits under the rule above the stack, or the top plate's back edge lands on
+  that rule and the two read as one line. At the sidebar's usual 200dp the plate is 158dp wide: a
+  two-pane split draws two 79dp blocks, a four-way split four 39dp blocks. Dragged down to 120dp -
+  which the footer's own `FlowRow` note says is reachable - the plate is 78dp and a four-way split
+  still draws four 19dp blocks. The shallow-perspective fallback (flat rectangles, each slightly
+  narrower as it recedes) was not needed: nothing here becomes a sliver, because the projection's
+  cost is a constant rather than a per-floor one.
+- **The label goes on the slab, not beside it, and on the FACE rather than the plate.** A name in
+  its own column to the right wants about 60dp permanently, which at 120dp would leave the plate
+  under 40dp - four panes of 10dp, the exact illegible outcome the view exists to avoid. It was on
+  the plate first, where it sat across the very pane rectangles it was captioning; the front face is
+  the caption surface, and the plate is the picture. The face is a plain rectangle - a vertical
+  extrusion stays vertical in this projection - so the text needs no clearance for the slant, just
+  8dp at each end plus `SKEW` on the trailing side, since the face's right edge is the plate's
+  front-right corner.
 - **Structurally true, schematically proportioned - the same caveat as `SplitPositionGlyph`.**
   A pane's place on the plate comes from `paneAreaFor`, so a divider dragged to 20/80 draws as
   halves: the name says which edges the pane touches and nothing about where the divider is. No
@@ -306,7 +309,7 @@ through the same `switchToWorkspace` the workspace headers use.
 - **Hit-testing is per floor BAND, not per parallelogram.** Selection is per workspace, so the
   fixed-height `Box` takes the click and the `Canvas` inside it only draws. Inverting the projection
   on every press would buy a hit test nobody could tell apart from this one.
-- **`heightIn(max = ...)`, not `height(...)`.** Four storeys are on screen and the rest scroll. A
+- **`heightIn(max = ...)`, not `height(...)`.** Three storeys are on screen and the rest scroll. A
   window running three workspaces gives the room it does not need back to the tree, where a fixed
   height would hold it empty; capping the floor COUNT instead would have put a "+N more" in a panel
   where the thing behind it cannot be clicked.
@@ -315,11 +318,13 @@ through the same `switchToWorkspace` the workspace headers use.
   window's workspaces labels something that is already showing what it is, and it cost a 24dp row
   to do it. `heightIn` means the block shrinks to fit a two-workspace window anyway, so there was
   never much height for a toggle to hand back.
-- **The lit floor is accent FILL; its label is `BossColors.accentText`.** `AccentColor` is the fill
-  token and lands under 4.5:1 as text, which is written down under Colours and has caught this
-  plugin before. The pane being worked in inside the lit floor is filled harder still, off
-  `activeTabsProvider.activePanelId` - which is null for every workspace that is not on screen, so
-  only the lit floor ever marks one.
+- **The lit floor is accent FILL; its label is `TextPrimary`.** The name sits on the front face,
+  and for the current floor that face IS the accent - so the accent cannot also be the text. The
+  fill is already saying which floor this is. (`AccentColor` landing under 4.5:1 as text is written
+  down under Colours and has caught this plugin before; `accentText` would work on a 0.12-alpha
+  plate and not on a 0.45-alpha face.) The pane being worked in inside the lit floor is filled
+  harder still, off `activeTabsProvider.activePanelId` - which is null for every workspace that is
+  not on screen, so only the lit floor ever marks one.
 - **An empty pane is drawn as an outline with no fill.** A pane with no tabs in it is part of the
   split and should be visible as one; filling it would claim there is something in it.
 

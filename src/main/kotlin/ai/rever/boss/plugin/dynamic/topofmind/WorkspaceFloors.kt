@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -60,21 +61,29 @@ private val FLOORS_SIDE_INSET = 10.dp
  */
 private val SKEW = 22.dp
 
-/** The plate's own vertical extent. Two stacked panes get 12dp each, which is a readable band. */
-private val PLATE_DEPTH = 24.dp
+/** The plate's own vertical extent. Two stacked panes get 15dp each, which is a readable band. */
+private val PLATE_DEPTH = 30.dp
 
 /**
  * The slab's thickness: the two vertical faces under the plate that make it read as solid.
  *
- * 8dp rather than 4. At 4 the front face was a line under the plate and the stack read as a pile
- * of cards; the storeys have to look like slabs with something between them for the building to be
- * a building. It is the more expensive of the two numbers - it is pure height, where the plate at
- * least carries the panes - which is why [FLOORS_VISIBLE_MAX] came down with it.
+ * This is what carries the workspace's NAME, which is why it is 20dp and not the 4dp it started
+ * at. At 4 the front face was a line under the plate and the stack read as a pile of cards; at 20
+ * it is a face with writing on it, which is what a storey of a building looks like. It also takes
+ * the label off the plate, so the pane rectangles are no longer drawn under a row of text.
  */
-private val RISER_DEPTH = 8.dp
+private val RISER_DEPTH = 20.dp
 
 /** Air between one slab and the next. Small, so the stack reads as a building and not as cards. */
-private val FLOOR_GAP = 5.dp
+private val FLOOR_GAP = 6.dp
+
+/**
+ * Air between the rule above the stack and its top floor.
+ *
+ * Without it the top plate's back edge sits on the rule and the two read as one line, which makes
+ * the building look like it is hanging off the tree rather than standing under it.
+ */
+private val FLOORS_TOP_GAP = 8.dp
 
 /** The clickable band for one workspace: the slab plus the air under it. */
 private val BAND_HEIGHT = PLATE_DEPTH + RISER_DEPTH + FLOOR_GAP
@@ -86,21 +95,22 @@ private val BAND_HEIGHT = PLATE_DEPTH + RISER_DEPTH + FLOOR_GAP
  * tree back the room it does not need, and one running a dozen scrolls rather than hiding the
  * bottom of the list behind a "+N more" that cannot be clicked.
  *
- * Four rather than five, because a band is 37dp now where it was 27: the block keeps roughly the
- * 135dp of sidebar it always took, and the storeys inside it got thicker rather than the tree
- * getting shorter.
+ * Three, because a band is 56dp now: a 30dp plate, a 20dp face with the name on it, and 6dp of
+ * air. That is 168dp of sidebar at the cap, against 135dp when a floor was 27dp - the storeys got
+ * legible and the block grew by about a row of the tree, rather than by four of them.
  */
-private const val FLOORS_VISIBLE_MAX = 4
+private const val FLOORS_VISIBLE_MAX = 3
 private val FLOORS_MAX_HEIGHT = BAND_HEIGHT * FLOORS_VISIBLE_MAX
 
 /**
- * Room between the plate's edge and the label on top of it.
+ * Room between the front face's edges and the name written on it.
  *
- * Half the skew plus a little: at the plate's vertical middle its left edge has travelled `SKEW/2`
- * in from the drawing area's left, and its right edge is `SKEW/2` short of the right. Inset by
- * less and a long name's first and last glyphs hang off the slanted ends.
+ * The face is a plain rectangle - a vertical extrusion stays vertical in this projection - so this
+ * is an ordinary inset, where the label needed `SKEW / 2` of clearance while it sat on the slanted
+ * plate. The face's RIGHT edge is the plate's front-right corner, which is [SKEW] short of the
+ * drawing area, so the trailing pad carries the skew as well.
  */
-private val LABEL_INSET = SKEW / 2 + 5.dp
+private val LABEL_INSET = 8.dp
 
 /** Between the workspace name and its tab count, the panel's own header spacing. */
 private val LABEL_GAP = 6.dp
@@ -274,6 +284,7 @@ internal fun WorkspaceFloors(
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Divider(color = BossThemeColors.BorderColor)
+        Spacer(modifier = Modifier.height(FLOORS_TOP_GAP))
 
         val listState = rememberLazyListState()
         LazyColumn(
@@ -307,13 +318,18 @@ internal fun WorkspaceFloors(
 }
 
 /**
- * One storey: the slab, its panes, and the workspace's name written on the plate.
+ * One storey: the plate with its panes on it, and the workspace's name on the face underneath.
  *
- * The label goes ON the plate rather than beside it, and that is a width decision. A name in its
- * own column to the right of the slab wants ~60dp permanently, which at the 120dp the sidebar can
- * be dragged to would leave the plate under 40dp - four panes of 10dp, which is the illegible
- * outcome this view exists to avoid. On the plate the name costs nothing horizontally, the pane
- * edges stay drawn as lines underneath it, and it ellipsises the way every other row here does.
+ * The label is on the slab rather than beside it, and that is a width decision. A name in its own
+ * column to the right wants ~60dp permanently, which at the 120dp the sidebar can be dragged to
+ * would leave the plate under 40dp - four panes of 10dp, the illegible outcome this view exists to
+ * avoid. On the slab it costs nothing horizontally and ellipsises like every other row here.
+ *
+ * On the FACE rather than on the plate, which is the second decision. The plate is the picture -
+ * the panes are drawn there - and a row of text across it sat over the very rectangles it was meant
+ * to caption. The face is a plain rectangle (a vertical extrusion stays vertical in this
+ * projection), so text on it needs no clearance for the slant, and a storey with writing on its
+ * front is what a floor of a building looks like.
  */
 @Composable
 private fun Floor(
@@ -351,14 +367,11 @@ private fun Floor(
                 else -> BossColors.darkSurface
             }
         }
-    // accentText, not AccentColor: the latter is the FILL token and lands under 4.5:1 as text. Same
-    // rule the split-section header follows.
-    val labelColor =
-        when {
-            isCurrent -> BossColors.accentText
-            hovered -> BossThemeColors.TextPrimary
-            else -> BossThemeColors.TextSecondary
-        }
+    // The name sits ON the front face, and for the current floor that face is the accent at
+    // CURRENT_RISER_FRONT_ALPHA - a fill. So the accent cannot also be the text: the fill is
+    // already saying which floor this is, and TextPrimary is what reads against it. Same rule as
+    // the split-section header, applied to a label that moved onto a filled surface.
+    val labelColor = if (lit) BossThemeColors.TextPrimary else BossThemeColors.TextSecondary
 
     Box(
         // The BAND takes the click, not the parallelogram: selection is per floor, so inverting the
@@ -443,12 +456,20 @@ private fun Floor(
             drawPath(plate, outline, style = Stroke(width = stroke))
         }
 
+        // On the FRONT FACE, under the plate. `at(0f, 1f)` puts that face's left edge at the
+        // drawing area's left and its right edge SKEW short of the right, so the trailing pad
+        // carries the skew; it is PLATE_DEPTH down from the top of the slab and RISER_DEPTH tall,
+        // which is the face exactly.
         Row(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(PLATE_DEPTH)
-                    .padding(horizontal = FLOORS_SIDE_INSET + LABEL_INSET),
+                    .padding(top = PLATE_DEPTH)
+                    .height(RISER_DEPTH)
+                    .padding(
+                        start = FLOORS_SIDE_INSET + LABEL_INSET,
+                        end = FLOORS_SIDE_INSET + SKEW + LABEL_INSET,
+                    ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(LABEL_GAP),
         ) {
@@ -464,7 +485,7 @@ private fun Floor(
             Text(
                 text = node.tabCount.toString(),
                 fontSize = FLOOR_COUNT_SP.sp,
-                color = if (isCurrent) BossColors.accentText else BossThemeColors.TextMuted,
+                color = if (lit) BossThemeColors.TextPrimary else BossThemeColors.TextMuted,
                 maxLines = 1,
             )
         }
