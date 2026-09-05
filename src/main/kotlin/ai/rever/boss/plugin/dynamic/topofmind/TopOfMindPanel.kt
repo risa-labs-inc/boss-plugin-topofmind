@@ -413,7 +413,10 @@ private fun TabStructure(
     onCloseTabs: ((String, List<ActiveTabData>) -> Unit)?,
     sectionPath: String = "",
 ) {
-    structure.forEach { item ->
+    // Indexed so a split section can tell whether it is the first under its parent: the rule
+    // divides one pane from the previous one, and the first has a workspace header above it
+    // already.
+    structure.forEachIndexed { index, item ->
         when (item) {
             is WorkspaceTabStructure.TabItem -> {
                 val tab = item.activeTab
@@ -494,6 +497,7 @@ private fun TabStructure(
                     sectionName = item.sectionName,
                     indentDp = INDENT_STEP * (depth + 1),
                     isExpanded = isExpanded,
+                    showRuleAbove = index > 0,
                     onToggleExpansion = panelId?.let { id -> { paneExpansion.togglePinned(id) } },
                     onHover = panelId?.let { id -> { paneExpansion.hover(id) } },
                     onCloseAll =
