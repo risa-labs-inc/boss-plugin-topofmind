@@ -18,10 +18,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -41,6 +41,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -204,10 +205,21 @@ private const val FLOOR_COUNT_SP = 10
 private const val ACTIVE_PANE_ALPHA = 0.62f
 private const val CURRENT_PANE_ALPHA = 0.34f
 private const val HOVER_PANE_ALPHA = 0.18f
+
+/** How far the current floor's plate is tinted toward the accent. A blend, not an alpha. */
 private const val CURRENT_PLATE_ALPHA = 0.12f
-private const val PLATE_BASE_ALPHA = 0.45f
+
+/** The same for its front face, which takes more light than its plate and so more of the accent. */
 private const val CURRENT_RISER_FRONT_ALPHA = 0.45f
-private const val CURRENT_RISER_SIDE_ALPHA = 0.22f
+
+/**
+ * How far the side face is shaded past the front one.
+ *
+ * The two faces are one material under one light, so this is the whole of the difference between
+ * them. Too little and the slab reads flat; too much and the side reads as a hole, which is the bug
+ * this replaced.
+ */
+private const val SIDE_FACE_SHADE = 0.35f
 private const val PANE_EDGE_ALPHA = 0.7f
 
 /**
@@ -437,14 +449,23 @@ private fun Floor(
 
     val accent = BossThemeColors.AccentColor
     val lit = isCurrent || hovered
-    val plateBase =
-        if (isCurrent) accent.copy(alpha = CURRENT_PLATE_ALPHA) else BossColors.darkSurface.copy(alpha = PLATE_BASE_ALPHA)
-    val riserFront =
-        if (isCurrent) accent.copy(alpha = CURRENT_RISER_FRONT_ALPHA) else BossColors.darkSurface
-    // The side face is the darker of the two, which is the only lighting cue the slab gets and the
-    // thing that stops it reading as a flat card with a line under it.
-    val riserSide =
-        if (isCurrent) accent.copy(alpha = CURRENT_RISER_SIDE_ALPHA) else BossThemeColors.BackgroundColor
+    // The slab is SOLID: every face is an opaque blend of one surface toward the accent, never that
+    // surface at an alpha. A translucent face lets the panel's ground through, which reads as the
+    // slab being a wash over the page rather than a block sitting on it - and it made the current
+    // floor's front face, at a higher alpha than its plate, look like the brighter of two washes
+    // instead of the lit face of one box. Only the PANES on top of the plate are translucent, and
+    // they have an opaque plate under them to be translucent against.
+    val plateBase = lerp(BossColors.darkSurface, accent, if (isCurrent) CURRENT_PLATE_ALPHA else 0f)
+    val riserFront = lerp(BossColors.darkSurface, accent, if (isCurrent) CURRENT_RISER_FRONT_ALPHA else 0f)
+    // The SAME material as the front with less light on it, which is the only lighting cue the slab
+    // gets and the thing that stops it reading as a flat card with a line under it.
+    //
+    // DERIVED from the front rather than stated, because stating it got it wrong twice. A
+    // non-current floor's side was `BackgroundColor` - the panel's own ground - so the slab had a
+    // hole cut in its right side rather than a shaded face, and a lit one's side was the accent at
+    // a LOWER alpha than its front, which is the page showing through more, not a face in shadow.
+    // Lerping toward black darkens and opacifies together, which is what a shaded face does.
+    val riserSide = lerp(riserFront, Color.Black, SIDE_FACE_SHADE)
     val outline = if (lit) accent else BossThemeColors.BorderColor
     val paneEdge = BossThemeColors.BorderColor.copy(alpha = PANE_EDGE_ALPHA)
     val paneFills =

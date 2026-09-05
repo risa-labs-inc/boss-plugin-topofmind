@@ -367,13 +367,22 @@ through the same `switchToWorkspace` the workspace headers use.
   window's workspaces labels something that is already showing what it is, and it cost a 24dp row
   to do it. `heightIn` means the block shrinks to fit a two-workspace window anyway, so there was
   never much height for a toggle to hand back.
+- **The slab is SOLID: every face is an opaque BLEND, never a surface at an alpha.** A translucent
+  face lets the panel's ground through, which reads as a wash over the page rather than a block
+  sitting on it. Two bugs came out of getting that wrong, both visible: a non-current floor's SIDE
+  face was `BackgroundColor` - the panel's own ground - so the slab had a hole cut in its right side
+  instead of a shaded face; and the current floor's front face was the accent at a HIGHER alpha than
+  its plate, which is the page showing through less rather than a face catching more light. The
+  plate and the front are `lerp(darkSurface, accent, …)`, and the side is derived from the front by
+  `lerp(front, Color.Black, SIDE_FACE_SHADE)` - one material, one light, so the two faces cannot
+  drift apart again. Only the PANES are translucent, and they have an opaque plate under them to be
+  translucent against.
 - **The lit floor is accent FILL; its label is `TextPrimary`.** The name sits on the front face,
   and for the current floor that face IS the accent - so the accent cannot also be the text. The
   fill is already saying which floor this is. (`AccentColor` landing under 4.5:1 as text is written
-  down under Colours and has caught this plugin before; `accentText` would work on a 0.12-alpha
-  plate and not on a 0.45-alpha face.) The pane being worked in inside the lit floor is filled
-  harder still, off `activeTabsProvider.activePanelId` - which is null for every workspace that is
-  not on screen, so only the lit floor ever marks one.
+  down under Colours and has caught this plugin before.) The pane being worked in inside the lit
+  floor is filled harder still, off `activeTabsProvider.activePanelId` - which is null for every
+  workspace that is not on screen, so only the lit floor ever marks one.
 - **An empty pane is drawn as an outline with no fill.** A pane with no tabs in it is part of the
   split and should be visible as one; filling it would claim there is something in it.
 
