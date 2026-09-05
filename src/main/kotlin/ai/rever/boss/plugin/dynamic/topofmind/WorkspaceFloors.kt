@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -34,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -126,8 +128,8 @@ private val BAND_HEIGHT = SLAB_HEIGHT - FLOOR_OVERLAP
  */
 private const val FLOORS_VISIBLE_MAX = 4
 
-/** Nothing bites into the BOTTOM floor, so the cap has to carry one slab at its full height. */
-private val FLOORS_MAX_HEIGHT = BAND_HEIGHT * FLOORS_VISIBLE_MAX + FLOOR_OVERLAP
+/** The TOP floor shows a whole slab; the rest show a band each. */
+private val FLOORS_MAX_HEIGHT = SLAB_HEIGHT + BAND_HEIGHT * (FLOORS_VISIBLE_MAX - 1)
 
 /**
  * Room between the front face's edges and the name written on it.
@@ -327,25 +329,18 @@ internal fun WorkspaceFloors(
                         direction = Orientation.Vertical,
                         config = getPanelScrollbarConfig(),
                     ),
-            // BOTTOM floor first, laid out in reverse, so the list still reads top-down on screen
-            // while the TOP storey is the last one drawn. That order is what makes the overlap a
-            // building: a floor's face has to land ON the plate below it, and a LazyColumn paints
-            // its items in index order, so the natural order put every lower floor in front of the
-            // one above and buried the faces carrying the names.
-            reverseLayout = true,
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
-            // Room under the bottom floor for the part of its slab that nothing bites into. Its
-            // band is a slab less the overlap, so without this the bottom face is cut short.
-            item(key = "floors-base") {
-                Spacer(modifier = Modifier.height(FLOOR_OVERLAP))
-            }
             // Keyed, so a workspace opening or closing does not recycle a floor's hover state
             // onto a different building.
-            items(count = workspaces.size, key = { workspaces[workspaces.lastIndex - it].id }) { index ->
-                val node = workspaces[workspaces.lastIndex - index]
+            items(count = workspaces.size, key = { workspaces[it].id }) { index ->
+                val node = workspaces[index]
                 Floor(
                     node = node,
+                    // Nothing is stacked on the top floor, so it is the one storey that shows its
+                    // whole slab - back edge included. Every other floor draws only the part the
+                    // storey above does not cover.
+                    isTop = index == 0,
                     isCurrent = currentWorkspaceId == node.workspaceId,
                     activePanelId = activePanelId,
                     onClick = { onSelectWorkspace(node.workspaceId) },
@@ -372,6 +367,7 @@ internal fun WorkspaceFloors(
 @Composable
 private fun Floor(
     node: TabTreeNode.WorkspaceNode,
+    isTop: Boolean,
     isCurrent: Boolean,
     activePanelId: String?,
     onClick: () -> Unit,
@@ -414,18 +410,31 @@ private fun Floor(
     Box(
         // The BAND takes the click, not the parallelogram: selection is per floor, so inverting the
         // projection on every press would buy a hit test nobody can tell apart from this one.
+        //
+        // A full slab tall for the TOP storey and FLOOR_OVERLAP shorter for the rest, which is what
+        // the overlap costs each of them. `clipToBounds` is what makes it an overlap rather than a
+        // collision: the slab below is pulled UP by that much and would otherwise paint over the
+        // face of the storey above it, name and all.
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(BAND_HEIGHT)
+                .height(if (isTop) SLAB_HEIGHT else BAND_HEIGHT)
+                .clipToBounds()
                 .hoverable(interaction)
                 .clickable(onClick = onClick),
     ) {
-        // `requiredHeight`, deliberately overflowing the band: a slab is FLOOR_OVERLAP taller than
-        // the space it occupies in the list, and the surplus is what lands on the storey below.
-        // Nothing clips it - a Box does not clip its children, and the list clips only to its own
-        // viewport - so this draws exactly where the reversed order intends.
-        Box(modifier = Modifier.fillMaxWidth().requiredHeight(SLAB_HEIGHT)) {
+        // The slab is always drawn whole, then slid up under the storey above and clipped. Drawing
+        // a partial slab instead would mean clipping the plate, its panes and the outline by hand;
+        // sliding it means every floor draws exactly the same shape and the band decides how much
+        // of it survives. No z-order to get right either - nothing overlaps anything, so the list
+        // can stay in reading order.
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .requiredHeight(SLAB_HEIGHT)
+                    .offset(y = if (isTop) 0.dp else -FLOOR_OVERLAP),
+        ) {
             Canvas(
                 modifier =
                     Modifier

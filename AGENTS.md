@@ -275,8 +275,7 @@ through the same `switchToWorkspace` the workspace headers use.
   the whole building however many storeys it has.
 - **The numbers, so the next change can be judged against them.** 10dp of inset each side, `SKEW`
   22dp, a 26dp plate over an 18dp riser, and each storey **bites 16dp into the one below** - so a
-  slab is 44dp, a band is 28dp, and four of them plus the bottom slab's own full height come to
-  128dp at the cap. How deep the bite goes is not a free choice: the step left at a seam is
+  slab is 44dp, a band is 28dp, and the cap is one full slab plus three bands - 128dp. How deep the bite goes is not a free choice: the step left at a seam is
   `(PLATE_DEPTH - FLOOR_OVERLAP) / PLATE_DEPTH * SKEW`, since the plate's left edge travels the
   whole skew over the whole plate depth. 6dp of 26 left 17dp of the 22dp step, which still read as
   separate floors; 16dp takes it to about 8dp and leaves 10dp of plate showing. Closing the step
@@ -317,17 +316,20 @@ through the same `switchToWorkspace` the workspace headers use.
   the same `WorkspaceTabStructure` the tree is drawing, in the same order, so a storey and its group
   in the tree can never disagree about the shape of a workspace and always sit in the same
   position.
-- **The storeys overlap, and the list is REVERSED to make that a building.** Flush was not enough:
+- **The storeys overlap by sliding UP and clipping, not by overflowing DOWN.** Flush was not enough:
   with the slabs merely touching, the left silhouette stepped in by `SKEW` at every seam - a floor's
   face ends at its plate's front-left corner and the next floor's plate begins at its back-left one -
-  so the outline restarted at each storey. Each slab is `requiredHeight(SLAB_HEIGHT)` inside a band
-  that is `FLOOR_OVERLAP` shorter, and the surplus lands on the floor below, which is where a real
-  storey's slab goes. That only works if the UPPER floor is painted last, and a `LazyColumn` paints
-  its items in index order - so the items are fed bottom floor first with `reverseLayout = true`,
-  which reads top-down on screen and draws bottom-up. The natural order put every lower floor in
-  front of the one above and buried the faces carrying the names. A leading `item` of
-  `FLOOR_OVERLAP` (the BOTTOM of the list, under reversal) gives the bottom slab the height nothing
-  bites into.
+  so the outline restarted at each storey. Every floor draws a whole slab; each one below the top is
+  then slid up by `FLOOR_OVERLAP` inside a band that much shorter, with `clipToBounds` keeping it
+  out of the face above. The picture is identical to letting the storey above paint over it, and
+  nothing overlaps anything, so **there is no z-order to get right**.
+  - The first attempt did overflow downward, which meant the UPPER floor had to paint last, which a
+    `LazyColumn` will not do (it paints in index order) - so it used `reverseLayout = true` with the
+    items fed bottom-first. That worked and cost the list its top anchor: with more floors than fit,
+    a reversed list starts scrolled to the BOTTOM, and the top floor lost its back edge off the top
+    of the viewport. Sliding up has no such trade.
+  - **The TOP floor's band is a whole `SLAB_HEIGHT`.** Nothing is stacked on it, so it is the one
+    storey that shows its back edge, and giving it a short band is exactly the bug above.
 - **Hit-testing is per floor BAND, not per parallelogram.** Selection is per workspace, so the
   fixed-height `Box` takes the click and the `Canvas` inside it only draws. Inverting the projection
   on every press would buy a hit test nobody could tell apart from this one.
