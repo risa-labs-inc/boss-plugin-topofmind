@@ -35,7 +35,6 @@ import androidx.compose.foundation.layout.requiredWidthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.Divider
 import androidx.compose.material.Icon
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
@@ -155,8 +154,10 @@ internal fun WorkspaceActionsFooter(
     onOpenQuickSwitcher: () -> Unit,
     scope: CoroutineScope,
 ) {
+    // No rule above these actions. It used to separate the footer from the tree; the floors stack
+    // sits between them now, and a line under the building read as the ground the building was
+    // standing on rather than as the edge of the footer.
     Column(modifier = Modifier.fillMaxWidth()) {
-        Divider(color = BossThemeColors.BorderColor)
         FlowRow(
             modifier =
                 Modifier

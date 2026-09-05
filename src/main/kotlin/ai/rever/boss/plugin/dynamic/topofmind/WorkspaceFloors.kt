@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -74,16 +76,23 @@ private val PLATE_DEPTH = 26.dp
  */
 private val RISER_DEPTH = 18.dp
 
+/** One slab, top of plate to bottom of face. What a floor draws, before any overlap. */
+private val SLAB_HEIGHT = PLATE_DEPTH + RISER_DEPTH
+
 /**
- * Nothing between one slab and the next.
+ * How far a storey BITES INTO the one below it.
  *
- * ZERO, deliberately. Air between the storeys made them read as a pile of separate cards; with none
- * a floor's riser meets the back edge of the plate below it and the stack becomes one building, the
- * seam between two storeys being exactly the pair of outlines that meet there. It is kept as a
- * named constant rather than deleted because it is the one number that decides between those two
- * readings, and a future change wanting cards back should have to set it rather than reintroduce it.
+ * Flush was not enough. With the slabs merely touching, the left silhouette stepped in by [SKEW] at
+ * every seam - a floor's face ends at its plate's front-left corner and the next floor's plate
+ * begins at its BACK-left one, which is the skew further right - so the outline restarted at each
+ * storey and the stack read as a pile of trays. Overlapping puts the back of a plate UNDER the face
+ * above it, which is where a real storey's slab goes, and the corner columns then run straight down
+ * the whole building.
+ *
+ * 6dp: enough to close the step, small enough that what it hides is the back edge of a plate rather
+ * than any of the pane rectangles on it. Zero puts the floors back to merely touching.
  */
-private val FLOOR_GAP = 0.dp
+private val FLOOR_OVERLAP = 6.dp
 
 /**
  * Air between the rule above the stack and its top floor.
@@ -93,8 +102,8 @@ private val FLOOR_GAP = 0.dp
  */
 private val FLOORS_TOP_GAP = 8.dp
 
-/** The clickable band for one workspace: the slab plus the air under it. */
-private val BAND_HEIGHT = PLATE_DEPTH + RISER_DEPTH + FLOOR_GAP
+/** The clickable band for one workspace: its slab, less what the storey above takes back. */
+private val BAND_HEIGHT = SLAB_HEIGHT - FLOOR_OVERLAP
 
 /**
  * How many storeys are on screen before the stack scrolls.
@@ -103,12 +112,15 @@ private val BAND_HEIGHT = PLATE_DEPTH + RISER_DEPTH + FLOOR_GAP
  * tree back the room it does not need, and one running a dozen scrolls rather than hiding the
  * bottom of the list behind a "+N more" that cannot be clicked.
  *
- * Three, because a band is 44dp: a 26dp plate over an 18dp face with the name on it, and nothing
- * between it and the next. That is 132dp of sidebar at the cap - about what the block took when a
- * floor was 27dp of a five-storey stack, with the height spent on three legible storeys instead.
+ * Three. A slab is 44dp - a 26dp plate over an 18dp face with the name on it - and each one bites
+ * 6dp into the storey below, so a band is 38dp and three of them plus the bottom slab's own full
+ * height come to 120dp. About what the block took when a floor was 27dp of a five-storey stack,
+ * with the height spent on three legible storeys instead.
  */
 private const val FLOORS_VISIBLE_MAX = 3
-private val FLOORS_MAX_HEIGHT = BAND_HEIGHT * FLOORS_VISIBLE_MAX
+
+/** Nothing bites into the BOTTOM floor, so the cap has to carry one slab at its full height. */
+private val FLOORS_MAX_HEIGHT = BAND_HEIGHT * FLOORS_VISIBLE_MAX + FLOOR_OVERLAP
 
 /**
  * Room between the front face's edges and the name written on it.
@@ -308,12 +320,23 @@ internal fun WorkspaceFloors(
                         direction = Orientation.Vertical,
                         config = getPanelScrollbarConfig(),
                     ),
+            // BOTTOM floor first, laid out in reverse, so the list still reads top-down on screen
+            // while the TOP storey is the last one drawn. That order is what makes the overlap a
+            // building: a floor's face has to land ON the plate below it, and a LazyColumn paints
+            // its items in index order, so the natural order put every lower floor in front of the
+            // one above and buried the faces carrying the names.
+            reverseLayout = true,
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
+            // Room under the bottom floor for the part of its slab that nothing bites into. Its
+            // band is a slab less the overlap, so without this the bottom face is cut short.
+            item(key = "floors-base") {
+                Spacer(modifier = Modifier.height(FLOOR_OVERLAP))
+            }
             // Keyed, so a workspace opening or closing does not recycle a floor's hover state
             // onto a different building.
-            items(count = workspaces.size, key = { workspaces[it].id }) { index ->
-                val node = workspaces[index]
+            items(count = workspaces.size, key = { workspaces[workspaces.lastIndex - it].id }) { index ->
+                val node = workspaces[workspaces.lastIndex - index]
                 Floor(
                     node = node,
                     isCurrent = currentWorkspaceId == node.workspaceId,
@@ -391,111 +414,116 @@ private fun Floor(
                 .hoverable(interaction)
                 .clickable(onClick = onClick),
     ) {
-        Canvas(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(PLATE_DEPTH + RISER_DEPTH)
-                    .padding(horizontal = FLOORS_SIDE_INSET),
-        ) {
-            val skew = SKEW.toPx()
-            val riser = RISER_DEPTH.toPx()
-            val depth = size.height - riser
-            val plateWidth = size.width - skew
-            // A panel dragged narrower than the projection needs draws nothing rather than folding
-            // the plate inside out.
-            if (plateWidth <= 1f || depth <= 1f) return@Canvas
-            val stroke = 1.dp.toPx()
+        // `requiredHeight`, deliberately overflowing the band: a slab is FLOOR_OVERLAP taller than
+        // the space it occupies in the list, and the surplus is what lands on the storey below.
+        // Nothing clips it - a Box does not clip its children, and the list clips only to its own
+        // viewport - so this draws exactly where the reversed order intends.
+        Box(modifier = Modifier.fillMaxWidth().requiredHeight(SLAB_HEIGHT)) {
+            Canvas(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = FLOORS_SIDE_INSET),
+            ) {
+                val skew = SKEW.toPx()
+                val riser = RISER_DEPTH.toPx()
+                val depth = size.height - riser
+                val plateWidth = size.width - skew
+                // A panel dragged narrower than the projection needs draws nothing rather than folding
+                // the plate inside out.
+                if (plateWidth <= 1f || depth <= 1f) return@Canvas
+                val stroke = 1.dp.toPx()
 
-            // The projection, in one line: a point (fx, fy) on the plate slides right as it goes
-            // BACK, and the back edge is the top one.
-            fun at(
-                fx: Float,
-                fy: Float,
-            ) = Offset(skew * (1f - fy) + fx * plateWidth, fy * depth)
+                // The projection, in one line: a point (fx, fy) on the plate slides right as it goes
+                // BACK, and the back edge is the top one.
+                fun at(
+                    fx: Float,
+                    fy: Float,
+                ) = Offset(skew * (1f - fy) + fx * plateWidth, fy * depth)
 
-            fun quad(
-                a: Offset,
-                b: Offset,
-                c: Offset,
-                d: Offset,
-            ): Path =
-                Path().apply {
-                    moveTo(a.x, a.y)
-                    lineTo(b.x, b.y)
-                    lineTo(c.x, c.y)
-                    lineTo(d.x, d.y)
-                    close()
+                fun quad(
+                    a: Offset,
+                    b: Offset,
+                    c: Offset,
+                    d: Offset,
+                ): Path =
+                    Path().apply {
+                        moveTo(a.x, a.y)
+                        lineTo(b.x, b.y)
+                        lineTo(c.x, c.y)
+                        lineTo(d.x, d.y)
+                        close()
+                    }
+
+                fun dropped(point: Offset) = Offset(point.x, point.y + riser)
+
+                val frontLeft = at(0f, 1f)
+                val frontRight = at(1f, 1f)
+                val backRight = at(1f, 0f)
+
+                // The two vertical faces first, so the plate lands on top of them. A vertical extrusion
+                // stays vertical in this projection, which is why these are a straight drop.
+                val front = quad(frontLeft, frontRight, dropped(frontRight), dropped(frontLeft))
+                val side = quad(backRight, frontRight, dropped(frontRight), dropped(backRight))
+                drawPath(front, riserFront)
+                drawPath(side, riserSide)
+
+                val plate = quad(at(0f, 0f), at(1f, 0f), at(1f, 1f), at(0f, 1f))
+                drawPath(plate, plateBase)
+
+                panes.forEachIndexed { index, pane ->
+                    val shape =
+                        quad(
+                            at(pane.area.left, pane.area.top),
+                            at(pane.area.right, pane.area.top),
+                            at(pane.area.right, pane.area.bottom),
+                            at(pane.area.left, pane.area.bottom),
+                        )
+                    val fill = paneFills.getOrElse(index) { Color.Transparent }
+                    if (fill != Color.Transparent) drawPath(shape, fill)
+                    // Outlined whether or not it was filled, so the divisions survive both an empty
+                    // pane and the label sitting over them.
+                    drawPath(shape, paneEdge, style = Stroke(width = stroke))
                 }
 
-            fun dropped(point: Offset) = Offset(point.x, point.y + riser)
-
-            val frontLeft = at(0f, 1f)
-            val frontRight = at(1f, 1f)
-            val backRight = at(1f, 0f)
-
-            // The two vertical faces first, so the plate lands on top of them. A vertical extrusion
-            // stays vertical in this projection, which is why these are a straight drop.
-            val front = quad(frontLeft, frontRight, dropped(frontRight), dropped(frontLeft))
-            val side = quad(backRight, frontRight, dropped(frontRight), dropped(backRight))
-            drawPath(front, riserFront)
-            drawPath(side, riserSide)
-
-            val plate = quad(at(0f, 0f), at(1f, 0f), at(1f, 1f), at(0f, 1f))
-            drawPath(plate, plateBase)
-
-            panes.forEachIndexed { index, pane ->
-                val shape =
-                    quad(
-                        at(pane.area.left, pane.area.top),
-                        at(pane.area.right, pane.area.top),
-                        at(pane.area.right, pane.area.bottom),
-                        at(pane.area.left, pane.area.bottom),
-                    )
-                val fill = paneFills.getOrElse(index) { Color.Transparent }
-                if (fill != Color.Transparent) drawPath(shape, fill)
-                // Outlined whether or not it was filled, so the divisions survive both an empty
-                // pane and the label sitting over them.
-                drawPath(shape, paneEdge, style = Stroke(width = stroke))
+                drawPath(front, outline, style = Stroke(width = stroke))
+                drawPath(side, outline, style = Stroke(width = stroke))
+                drawPath(plate, outline, style = Stroke(width = stroke))
             }
 
-            drawPath(front, outline, style = Stroke(width = stroke))
-            drawPath(side, outline, style = Stroke(width = stroke))
-            drawPath(plate, outline, style = Stroke(width = stroke))
-        }
-
-        // On the FRONT FACE, under the plate. `at(0f, 1f)` puts that face's left edge at the
-        // drawing area's left and its right edge SKEW short of the right, so the trailing pad
-        // carries the skew; it is PLATE_DEPTH down from the top of the slab and RISER_DEPTH tall,
-        // which is the face exactly.
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = PLATE_DEPTH)
-                    .height(RISER_DEPTH)
-                    .padding(
-                        start = FLOORS_SIDE_INSET + LABEL_INSET,
-                        end = FLOORS_SIDE_INSET + SKEW + LABEL_INSET,
-                    ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(LABEL_GAP),
-        ) {
-            Text(
-                text = node.name,
-                fontSize = FLOOR_NAME_SP.sp,
-                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                color = labelColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = node.tabCount.toString(),
-                fontSize = FLOOR_COUNT_SP.sp,
-                color = if (lit) BossThemeColors.TextPrimary else BossThemeColors.TextMuted,
-                maxLines = 1,
-            )
+            // On the FRONT FACE, under the plate. `at(0f, 1f)` puts that face's left edge at the
+            // drawing area's left and its right edge SKEW short of the right, so the trailing pad
+            // carries the skew; it is PLATE_DEPTH down from the top of the slab and RISER_DEPTH tall,
+            // which is the face exactly.
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = PLATE_DEPTH)
+                        .height(RISER_DEPTH)
+                        .padding(
+                            start = FLOORS_SIDE_INSET + LABEL_INSET,
+                            end = FLOORS_SIDE_INSET + SKEW + LABEL_INSET,
+                        ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(LABEL_GAP),
+            ) {
+                Text(
+                    text = node.name,
+                    fontSize = FLOOR_NAME_SP.sp,
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                    color = labelColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = node.tabCount.toString(),
+                    fontSize = FLOOR_COUNT_SP.sp,
+                    color = if (lit) BossThemeColors.TextPrimary else BossThemeColors.TextMuted,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
