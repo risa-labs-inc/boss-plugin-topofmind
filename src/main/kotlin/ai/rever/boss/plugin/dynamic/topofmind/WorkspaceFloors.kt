@@ -21,8 +21,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.Divider
@@ -40,7 +40,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -145,13 +145,10 @@ internal data class FloorMetrics(
     val riser: Dp,
 ) {
     /**
-     * How far this storey bites into the one below it: [FLOOR_OVERLAP], less any clamp.
-     *
-     * The step left in the left silhouette at a seam is `(plate - overlap) / plate * SKEW`, because
-     * the plate's left edge travels the whole skew over the whole plate depth. Closing it entirely
-     * means biting the WHOLE plate - identical boxes stacked with no gap hide each other's top faces
-     * exactly - which is the version with no panes visible below the top floor, and the panes are
-     * what this view is for.
+     * How much of a tucked storey's plate the storey above covers: [FLOOR_OVERLAP], less any clamp.
+     * What is left, `plate - overlap`, is the STRIP - the front of each lower plate that stays
+     * visible, and the amount by which each step's plate is deeper than the one above it. See the
+     * step arithmetic in `Floor`.
      */
     val overlap: Dp get() = (slab - pitch).coerceAtLeast(0.dp)
 }
@@ -411,17 +408,37 @@ internal fun WorkspaceFloors(
                     // included. The selected floor does too, by standing clear. Every other floor
                     // draws only the part the storey above does not cover.
                     isTop = index == 0,
-                    isBottom = index == workspaces.lastIndex,
-                    belowStandsFree =
-                        index < workspaces.lastIndex &&
-                            workspaces[index + 1].workspaceId == currentWorkspaceId,
                     isCurrent = currentWorkspaceId == node.workspaceId,
+                    // How many storeys deep this one is in its step, counting from the nearest floor
+                    // above that stands free. See Floor: every tucked storey is one strip deeper
+                    // than the one above it, and the count is what says how much deeper.
+                    step = stepOf(workspaces, index, currentWorkspaceId),
                     activePanelId = activePanelId,
                     onClick = { onSelectWorkspace(node.workspaceId) },
                 )
             }
         }
     }
+}
+
+/**
+ * How many tucked storeys sit between [index] and the nearest floor above it that stands free -
+ * zero for the top floor and for the selected one, one for the floor directly under either, and
+ * so on down the stack. The count resets at the selected floor because that floor sits at its
+ * natural depth, so the step below it starts again from there.
+ */
+private fun stepOf(
+    workspaces: List<TabTreeNode.WorkspaceNode>,
+    index: Int,
+    currentWorkspaceId: String?,
+): Int {
+    var step = 0
+    var i = index
+    while (i > 0 && workspaces[i].workspaceId != currentWorkspaceId) {
+        step++
+        i--
+    }
+    return step
 }
 
 /**
@@ -443,10 +460,9 @@ private fun Floor(
     node: TabTreeNode.WorkspaceNode,
     metrics: FloorMetrics,
     isTop: Boolean,
-    isBottom: Boolean,
-    /** The storey BELOW stands free, so its plate begins a whole slab down rather than a pitch. */
-    belowStandsFree: Boolean,
     isCurrent: Boolean,
+    /** Tucked storeys between this one and the nearest free floor above; zero when it stands free. */
+    step: Int,
     activePanelId: String?,
     onClick: () -> Unit,
 ) {
@@ -464,6 +480,30 @@ private fun Floor(
     // storey painted on top of the one above would cover the face carrying that workspace's name,
     // and a building does not work that way either.
     val standsFree = isTop || isCurrent
+
+    // THE STEP. A tucked storey's plate is one strip DEEPER than the one above it, and that is what
+    // makes the stack close up on the right.
+    //
+    // Two identical boxes cannot overlap: pushing the lower one up into the upper one puts its plate
+    // where the upper box's underside is, and its back-right corner then has nowhere coherent to
+    // be. It poked out as a wedge, was cropped flat, was hidden behind a column, was covered by a
+    // skirt - four renderings of one impossible geometry. What CAN sit under a box and still show
+    // its top is a box that is bigger toward the viewer: a step. In this projection the depth axis
+    // runs up-right by a fixed skew, so "deeper toward the viewer" means the plate's front edge
+    // moves straight down while its back edge and both corners' x stay put. So a step's plate is
+    // `strip` deeper than the one above, its back edge sits exactly where the box above's
+    // underside is, and its back-right corner lands on the very point where the side face above
+    // ends. Every edge closes. The visible part of each lower plate is an L: the front `strip`,
+    // plus a sliver up its right edge that narrows to nothing at that shared corner.
+    //
+    // The selected floor stands free at its natural depth, so the step restarts under it.
+    val strip = metrics.plate - metrics.overlap
+    val plateDepth = metrics.plate + strip * step.toFloat()
+    val slabHeight = plateDepth + metrics.riser
+    // Where this floor's plate begins, relative to its band: a step's back edge is the underside
+    // of the storey above, which is that storey's back edge plus one riser - so it sits the
+    // storey above's whole plate-depth above this band. A free floor begins at its band.
+    val lift = if (standsFree) 0.dp else metrics.plate + strip * (step - 1).toFloat()
 
     val accent = BossThemeColors.AccentColor
     val lit = isCurrent || hovered
@@ -523,12 +563,19 @@ private fun Floor(
         // its panes and the outline by hand; sliding it means every floor draws exactly the same
         // shape. No z-order to get right either - what is hidden is never drawn, so the list can
         // stay in reading order.
+        // `wrapContentHeight(Top, unbounded = true)`, NOT `requiredHeight`. Both let the slab be
+        // taller than its band, but `requiredHeight` reports the coerced size and then CENTRES the
+        // overflow - the child is silently moved up by half the excess - so every offset applied
+        // on top of it was wrong by that half, and every seam drawn since the overlap went in was
+        // out by up to a riser. Measured with a debug line before it was believed. Unbounded
+        // wrap-content aligns the child to the top and leaves the offset as the only shift.
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .requiredHeight(metrics.slab)
-                    .offset(y = if (standsFree) 0.dp else -metrics.overlap),
+                    .offset(y = -lift)
+                    .wrapContentHeight(align = Alignment.Top, unbounded = true)
+                    .height(slabHeight),
         ) {
             Canvas(
                 modifier =
@@ -538,7 +585,6 @@ private fun Floor(
             ) {
                 val skew = SKEW.toPx()
                 val riser = metrics.riser.toPx()
-                val overlapPx = metrics.overlap.toPx()
                 val depth = size.height - riser
                 val plateWidth = size.width - skew
                 // A panel dragged narrower than the projection needs draws nothing rather than folding
@@ -609,37 +655,35 @@ private fun Floor(
                 // it, in this storey's colour rather than as a column belonging to the one below:
                 // a column made the lower floor read as a tray under a box, where a wall reaching
                 // the next plate edge reads as a box standing on a slab.
-                val sideDrop =
-                    when {
-                        isBottom -> riser
-                        belowStandsFree -> size.height
-                        else -> metrics.pitch.toPx()
-                    }
-                val side =
-                    quad(
-                        backRight,
-                        frontRight,
-                        Offset(frontRight.x, frontRight.y + sideDrop),
-                        Offset(backRight.x, backRight.y + sideDrop),
-                    )
+                // The side face hangs from this plate's own right edge and is exactly as tall as the
+                // front face: a box, the same box on every floor. Its bottom-right corner is where
+                // the step below's plate begins.
+                val side = quad(backRight, frontRight, dropped(frontRight), dropped(backRight))
 
                 // Faces first, so the plate lands on top of them. A vertical extrusion stays vertical
                 // in this projection, which is why both are a straight drop.
                 drawPath(front, riserFront)
                 drawPath(side, riserSide)
 
-                if (isTop) {
+                if (standsFree) {
                     drawPlate()
                 } else {
-                    // Only what the storey above leaves showing, which is a RECTANGLE now: the face
-                    // above ends level at `topLine` across the plate's width, and everything right of
-                    // that is under the wall above, down to this plate's own right edge. The corner
-                    // that lived there is what the wall exists to cover, so this plate does not draw
-                    // it. `topLine` is `overlap` when tucked, level with the top when standing free.
-                    val topLine = if (standsFree) 0f else overlapPx
-                    clipRect(left = 0f, top = topLine, right = plateWidth, bottom = size.height) {
-                        drawPlate()
-                    }
+                    // Only what the storey above leaves showing. Its front face ends level at `lift`
+                    // (this band's top, in these coordinates) across the plate's width; its side face
+                    // ends on a line climbing from there to the far right, where it meets this
+                    // plate's back-right corner EXACTLY - that is what the step buys. Below that line
+                    // is this plate's L: the front strip and the sliver up the right edge.
+                    val liftPx = lift.toPx()
+                    val covered =
+                        Path().apply {
+                            moveTo(0f, liftPx)
+                            lineTo(plateWidth, liftPx)
+                            lineTo(size.width, 0f)
+                            lineTo(size.width, size.height)
+                            lineTo(0f, size.height)
+                            close()
+                        }
+                    clipPath(covered) { drawPlate() }
                 }
 
                 drawPath(front, outline, style = Stroke(width = stroke))
@@ -654,7 +698,7 @@ private fun Floor(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(top = metrics.plate)
+                        .padding(top = plateDepth)
                         .height(metrics.riser)
                         .padding(
                             start = FLOORS_SIDE_INSET + LABEL_INSET,
