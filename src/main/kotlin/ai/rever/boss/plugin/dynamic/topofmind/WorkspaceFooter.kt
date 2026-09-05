@@ -6,8 +6,11 @@ import ai.rever.boss.plugin.api.GenericDialogProvider
 import ai.rever.boss.plugin.api.SplitViewOperations
 import ai.rever.boss.plugin.api.WorkspaceDataProvider
 import ai.rever.boss.plugin.ui.BossColors
-import ai.rever.boss.plugin.ui.BossPopupAnchoring
-import ai.rever.boss.plugin.ui.BossPopup
+import ai.rever.boss.plugin.ui.BossDialog
+import ai.rever.boss.plugin.ui.BossSearchBar
+import ai.rever.boss.plugin.ui.BossSecondaryButton
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.text.font.FontWeight
 import ai.rever.boss.plugin.ui.BossTheme
 import ai.rever.boss.plugin.ui.BossThemeColors
 import ai.rever.boss.plugin.workspace.LayoutWorkspace
@@ -75,9 +78,12 @@ private val FOOTER_GAP = 4.dp
 private val FOOTER_INSET = 6.dp
 private val FOOTER_SIDE_INSET = 8.dp
 
-private val MENU_MIN_WIDTH = 180.dp
-private val MENU_MAX_WIDTH = 280.dp
-private val MENU_MAX_HEIGHT = 280.dp
+private val DIALOG_MIN_WIDTH = 320.dp
+private val DIALOG_MAX_WIDTH = 420.dp
+private val DIALOG_INSET = 16.dp
+private val DIALOG_LIST_MAX_HEIGHT = 320.dp
+private const val DIALOG_TITLE_SP = 15
+private val SEARCH_HEIGHT = 28.dp
 private val MENU_RADIUS = RoundedCornerShape(4.dp)
 private val MENU_ROW_HEIGHT = 28.dp
 private val MENU_ROW_INSET = 10.dp
@@ -159,14 +165,15 @@ internal fun WorkspaceActionsFooter(
                     icon = Icons.Outlined.Workspaces,
                     description = "Open workspace",
                     onClick = {
-                        // A toggle, like any menu button: the snapshot of what is running is taken
-                        // on the way OPEN, so re-clicking to close never re-reads it.
+                        // Snapshot what is running on the way OPEN. A dialog outlives a couple of
+                        // refresh ticks, and re-reading it under the user would move the dots
+                        // around while they are reading the list.
                         if (!menuOpen) running = runningWorkspaceIds()
                         menuOpen = !menuOpen
                     },
                 ) {
                     if (menuOpen) {
-                        WorkspaceMenu(
+                        WorkspacePickerDialog(
                             workspaces = workspaces,
                             currentWorkspaceId = currentWorkspace?.id,
                             runningWorkspaceIds = running,
@@ -224,8 +231,9 @@ internal fun WorkspaceActionsFooter(
 /**
  * One icon button in the foot.
  *
- * [overlay] is emitted INSIDE the button's box so an anchored popup has the button to anchor to.
- * `BossPopup` measures itself and then reports 0x0, so it costs the row no width.
+ * [overlay] is emitted INSIDE the button's box, which is where a dialog raised by this button
+ * lives. A dialog is a window and sizes itself, so nesting it here costs the row no width - unlike
+ * a popup, which would inherit this 32dp button as its measuring parent.
  */
 @Composable
 private fun FooterAction(
@@ -259,70 +267,103 @@ private fun FooterAction(
 }
 
 /**
- * Every saved workspace, with the same three states the host's menu marks.
+ * Every saved workspace, in a dialog with a search field.
  *
- * A [BossPopup] rather than a plain Compose `Popup`: under JxBrowser's hardware-accelerated surface
- * an ordinary popup renders BEHIND the browser, which is the whole reason the wrapper exists.
+ * A dialog rather than the popup this used to be, for two reasons. The list is as long as the user
+ * has workspaces, so it needs filtering, and a search field wants focus and room - both awkward in
+ * a menu hanging off a 32dp button. It also sidesteps that button entirely as a measuring parent:
+ * the popup inherited the anchor's 32dp width constraint and rendered as a strip with every name
+ * clipped away, which needed `requiredWidthIn` to defeat. A dialog is sized by the window.
  *
- * Content is wrapped in [BossTheme] because the heavyweight path composes it in a window of its own,
- * where the panel's theme is not in scope.
+ * [BossDialog], never a plain Compose `Dialog`: under JxBrowser's hardware-accelerated surface an
+ * ordinary dialog renders BEHIND the browser, which is the whole reason the wrapper exists.
+ *
+ * Content is wrapped in [BossTheme] because the heavyweight path composes it in a window of its
+ * own, where the panel's theme is not in scope.
  */
 @Composable
-private fun WorkspaceMenu(
+private fun WorkspacePickerDialog(
     workspaces: List<LayoutWorkspace>,
     currentWorkspaceId: String?,
     runningWorkspaceIds: Set<String>,
     onDismiss: () -> Unit,
     onPick: (LayoutWorkspace) -> Unit,
 ) {
-    BossPopup(
-        onDismissRequest = onDismiss,
-        // A menu, so it takes focus and can be dismissed with Escape or a click outside. The
-        // default is `false` to match Compose's Popup, which suits a suggestion list, not this.
-        focusable = true,
-        anchoring = BossPopupAnchoring.AnchorBounds,
-    ) {
+    var query by remember { mutableStateOf("") }
+    // Filtering is derived, not stored: a stored copy is a second thing to keep in step with the
+    // workspace list, which refreshes underneath this dialog while it is open.
+    val matches =
+        remember(workspaces, query) {
+            if (query.isBlank()) {
+                workspaces
+            } else {
+                workspaces.filter { it.name.contains(query.trim(), ignoreCase = true) }
+            }
+        }
+
+    BossDialog(onDismissRequest = onDismiss) {
         BossTheme {
             Surface(
                 modifier =
                     Modifier
-                        // requiredWidthIn, NOT widthIn. BossPopup measures its content against the
-                        // constraints of whatever it is composed inside, and that is a 32dp icon
-                        // button - widthIn cannot exceed an incoming maxWidth, so it clamped to 32dp
-                        // and the menu rendered as a bare strip with every name invisible. The
-                        // required* family ignores the incoming constraints, which is the only way
-                        // for a menu to be wider than the control that opens it.
-                        .requiredWidthIn(min = MENU_MIN_WIDTH, max = MENU_MAX_WIDTH)
+                        .requiredWidthIn(min = DIALOG_MIN_WIDTH, max = DIALOG_MAX_WIDTH)
                         .border(1.dp, BossThemeColors.BorderColor, MENU_RADIUS),
                 shape = MENU_RADIUS,
                 color = BossColors.contextMenuBackground,
             ) {
-                Column(
-                    modifier =
-                        Modifier
-                            .heightIn(max = MENU_MAX_HEIGHT)
-                            .verticalScroll(rememberScrollState())
-                            .padding(vertical = FOOTER_GAP),
-                ) {
-                    if (workspaces.isEmpty()) {
-                        Text(
-                            text = "No saved workspaces",
-                            fontSize = MENU_TEXT_SP.sp,
-                            color = BossThemeColors.TextMuted,
-                            modifier = Modifier.padding(horizontal = MENU_ROW_INSET, vertical = FOOTER_GAP),
-                        )
+                Column(modifier = Modifier.padding(DIALOG_INSET)) {
+                    Text(
+                        text = "Open Workspace",
+                        fontSize = DIALOG_TITLE_SP.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = BossThemeColors.TextPrimary,
+                    )
+                    Spacer(modifier = Modifier.height(DIALOG_INSET))
+
+                    BossSearchBar(
+                        query = query,
+                        onQueryChange = { query = it },
+                        placeholder = "Search workspaces",
+                        modifier = Modifier.fillMaxWidth().height(SEARCH_HEIGHT),
+                    )
+                    Spacer(modifier = Modifier.height(FOOTER_GAP))
+
+                    Column(
+                        modifier =
+                            Modifier
+                                .heightIn(max = DIALOG_LIST_MAX_HEIGHT)
+                                .verticalScroll(rememberScrollState()),
+                    ) {
+                        if (matches.isEmpty()) {
+                            Text(
+                                text =
+                                    if (workspaces.isEmpty()) {
+                                        "No saved workspaces"
+                                    } else {
+                                        "Nothing matching \"$query\""
+                                    },
+                                fontSize = MENU_TEXT_SP.sp,
+                                color = BossThemeColors.TextMuted,
+                                modifier = Modifier.padding(horizontal = MENU_ROW_INSET, vertical = FOOTER_GAP),
+                            )
+                        }
+                        matches.forEach { workspace ->
+                            // Three states, as the host's menu has them: the workspace on screen,
+                            // one that is merely running behind it, and one that only exists on disk.
+                            val isCurrent = workspace.id == currentWorkspaceId
+                            val isRunning = !isCurrent && workspace.id in runningWorkspaceIds
+                            WorkspaceMenuRow(
+                                name = workspace.name,
+                                isCurrent = isCurrent,
+                                isRunning = isRunning,
+                                onClick = { onPick(workspace) },
+                            )
+                        }
                     }
-                    workspaces.forEach { workspace ->
-                        // Three states, as the host's menu has them: the workspace on screen, one
-                        // that is merely running behind it, and one that only exists on disk.
-                        val isCurrent = workspace.id == currentWorkspaceId
-                        val isRunning = !isCurrent && workspace.id in runningWorkspaceIds
-                        WorkspaceMenuRow(
-                            name = workspace.name,
-                            isCurrent = isCurrent,
-                            isRunning = isRunning,
-                            onClick = { onPick(workspace) },
-                        )
+
+                    Spacer(modifier = Modifier.height(DIALOG_INSET))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        BossSecondaryButton(text = "Cancel", onClick = onDismiss)
                     }
                 }
             }
