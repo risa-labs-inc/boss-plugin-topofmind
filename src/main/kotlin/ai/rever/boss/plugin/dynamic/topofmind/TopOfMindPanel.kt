@@ -431,7 +431,7 @@ private fun TabStructure(
                     transferTargets = targets,
                     // Asked per row rather than precomputed: selectedTabId is a cheap lookup and
                     // the alternative is a second map to keep in step with a tree that rebuilds.
-                    isSelected = activeTabsProvider.selectedTabId(tab.panelId) == tab.tabId,
+                    isSelected = activeTabsProvider.selectedTabId(tab.workspaceId, tab.panelId) == tab.tabId,
                     // A pane in a workspace that is not on screen is never the focused one, so the
                     // panel-id match alone would light up a pane behind the current workspace.
                     isFocused =
@@ -485,7 +485,7 @@ private fun TabStructure(
                     } else {
                         // panelId is non-null here without a check: `isExpanded` is true whenever
                         // it is null, so a collapsed section always has a pane behind it.
-                        val selected = activeTabsProvider.selectedTabId(panelId)
+                        val selected = activeTabsProvider.selectedTabId(workspaceId, panelId)
                         tabs.firstOrNull { it.tabId == selected } ?: tabs.firstOrNull()
                     }
                 val hiddenTabs = if (isExpanded) emptyList() else tabs.filter { it.tabId != shownTab?.tabId }
