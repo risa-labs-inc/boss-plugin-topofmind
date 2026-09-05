@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -106,6 +107,9 @@ private const val SUMMARY_COUNT_SP = 10
 // How many favicons fit before the row starts counting instead. The host's number, for the host's
 // reason: past that the row would either wrap - changing its height - or clip marks without
 // saying it had.
+// TabFaviconChip's INACTIVE_ICON_ALPHA.
+private const val SUMMARY_CHIP_ALPHA = 0.55f
+
 private const val MAX_SUMMARY_CHIPS = 8
 
 // A chip's own hover fill. NOT `darkSurface`, which is what the row underneath is already filled
@@ -605,6 +609,13 @@ private fun SummaryChip(
                 .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        TabGlyph(tab = tab, activeTabsProvider = activeTabsProvider)
+        // Dimmed, as the host's chips are (TabFaviconChip's INACTIVE_ICON_ALPHA, applied because
+        // the summary row passes isActive = false). These stand for tabs that are NOT showing, so
+        // at full strength a row of eight of them out-shouted the one tab the pane is actually on.
+        // Alpha on the wrapper rather than a tint, because most of these are real favicons drawn
+        // as an Image and a tint would not touch them.
+        Box(modifier = Modifier.alpha(SUMMARY_CHIP_ALPHA)) {
+            TabGlyph(tab = tab, activeTabsProvider = activeTabsProvider)
+        }
     }
 }
