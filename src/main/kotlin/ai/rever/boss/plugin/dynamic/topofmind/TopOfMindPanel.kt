@@ -498,6 +498,12 @@ private fun TabStructure(
                     indentDp = INDENT_STEP * (depth + 1),
                     isExpanded = isExpanded,
                     showRuleAbove = index > 0,
+                    // The same test the tab rows use for isFocused: a pane in a workspace that is
+                    // not on screen is never the one being worked in, however recently it was.
+                    isActivePane =
+                        panelId != null &&
+                            workspaceId == currentWorkspaceId &&
+                            activeTabsProvider.activePanelId == panelId,
                     onToggleExpansion = panelId?.let { id -> { paneExpansion.togglePinned(id) } },
                     onHover = panelId?.let { id -> { paneExpansion.hover(id) } },
                     onCloseAll =

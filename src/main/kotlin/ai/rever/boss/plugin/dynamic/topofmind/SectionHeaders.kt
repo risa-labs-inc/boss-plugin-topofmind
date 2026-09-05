@@ -90,6 +90,8 @@ private val ACTION_RADIUS = RoundedCornerShape(4.dp)
 // the start and 6dp at the end, its items 2dp apart, with 18dp chips - smaller than a tab row's
 // icon, because this row is chrome rather than content.
 // The tab bar's gap above a group rule (WindowVerticalTabBar's GROUP_RULE_GAP).
+private const val COLLAPSED_GLYPH_ALPHA = 0.55f
+
 private val GROUP_RULE_GAP = 10.dp
 
 private val SUMMARY_ROW_HEIGHT = 24.dp
@@ -328,9 +330,21 @@ internal fun SplitSectionHeader(
      * there, and a rule directly under it would be a second edge a few dp below the first.
      */
     showRuleAbove: Boolean = false,
+    /**
+     * Whether this section is the pane the user is working in.
+     *
+     * Drives one tint shared by the glyph and the label, which is how the host does it: one group
+     * is highlighted at a time and always the same one, so the two read as a single statement
+     * rather than two competing marks.
+     */
+    isActivePane: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+
+    // accentText, not AccentColor. The latter is the FILL token and lands under 4.5:1 as text on
+    // the default theme; the host tints an active pane's header with signalText for that reason.
+    val tint = if (isActivePane) BossColors.accentText else BossThemeColors.TextSecondary
 
     // One interaction source doing two jobs - tinting the row and choosing the open pane - where
     // the host keeps two. Here they are the same event read twice, and a second `hoverable` on the
@@ -338,11 +352,16 @@ internal fun SplitSectionHeader(
     LaunchedEffect(isHovered) { if (isHovered) onHover?.invoke() }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // FULL BLEED, and the host argues the point: a rule of this weight inset to match the rows
-        // is indistinguishable from just another gap between them. It divides two panes, so it runs
-        // the whole width rather than starting where this pane's content does.
+        // Inset to where this pane's header content starts, NOT full bleed as the host has it.
+        // The host's panes are top level, so a rule across the whole bar can only mean "the next
+        // pane". Here sections are nested under a workspace and indented, so a full-bleed rule
+        // would divide the workspace group as readily as the pane, and at depth it would not say
+        // which level it belonged to. Starting where the header starts does.
         if (showRuleAbove) {
-            Divider(color = BossThemeColors.BorderColor, modifier = Modifier.padding(top = GROUP_RULE_GAP))
+            Divider(
+                color = BossThemeColors.BorderColor,
+                modifier = Modifier.padding(start = indentDp.dp + HEADER_START, top = GROUP_RULE_GAP),
+            )
         }
 
         Row(
@@ -359,21 +378,22 @@ internal fun SplitSectionHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(SECTION_GAP),
         ) {
-        // The tab bar's split diagram, not a chevron. Losing the chevron loses nothing: the whole
-        // row is the toggle, and its expanded state is already legible from whether rows follow it.
-        SplitPositionGlyph(sectionName = sectionName, expanded = isExpanded)
-        // weight(1f) on the label itself, as the host has it, rather than a spacer after it: a
-        // spacer let the label push the trailing action off a narrow panel instead of ellipsising.
-        Text(
-            text = sectionName.uppercase(),
-            fontSize = HEADER_SIZE_SP.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = HEADER_TRACKING,
-            color = BossThemeColors.TextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+            // The tab bar's split diagram, not a chevron. Losing the chevron loses nothing: the
+            // whole row is the toggle, and its state is legible from whether rows follow it.
+            SplitPositionGlyph(sectionName = sectionName, expanded = isExpanded, tint = tint)
+            // weight(1f) on the label itself, as the host has it, rather than a spacer after it: a
+            // spacer let the label push the trailing action off a narrow panel instead of
+            // ellipsising.
+            Text(
+                text = sectionName.uppercase(),
+                fontSize = HEADER_SIZE_SP.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = HEADER_TRACKING,
+                color = tint,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
             onCloseAll?.let { close ->
                 HeaderAction(
                     icon = Icons.Outlined.Close,
@@ -402,6 +422,7 @@ internal fun SplitSectionHeader(
 private fun SplitPositionGlyph(
     sectionName: String,
     expanded: Boolean,
+    tint: Color,
 ) {
     // Fractions of the frame, matching the host's PaneGlyph shape (left, top, right, bottom).
     val fill =
@@ -416,9 +437,9 @@ private fun SplitPositionGlyph(
             else -> null
         }
     val outline = BossThemeColors.BorderColor
-    // Filled brighter when the group is open, so the glyph carries the state the chevron used to.
-    val tint =
-        if (expanded) BossThemeColors.TextPrimary else BossThemeColors.TextSecondary
+    // Dimmed while the pane is collapsed, so the glyph still carries the state the chevron used to
+    // WITHOUT overriding the caller's tint - which is what says whether this is the active pane.
+    val fillColor = if (expanded) tint else tint.copy(alpha = COLLAPSED_GLYPH_ALPHA)
 
     Canvas(modifier = Modifier.size(width = GLYPH_WIDTH, height = GLYPH_HEIGHT)) {
         val stroke = 1.dp.toPx()
@@ -433,7 +454,7 @@ private fun SplitPositionGlyph(
         // that touches an edge should still read as bounded by the window.
         val inner = Size(size.width - stroke * 2f, size.height - stroke * 2f)
         drawRect(
-            color = tint,
+            color = fillColor,
             topLeft = Offset(stroke + fill.left * inner.width, stroke + fill.top * inner.height),
             size = Size((fill.right - fill.left) * inner.width, (fill.bottom - fill.top) * inner.height),
         )
