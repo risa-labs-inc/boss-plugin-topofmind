@@ -35,12 +35,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -492,22 +492,20 @@ private fun Floor(
         // projection on every press would buy a hit test nobody can tell apart from this one.
         //
         // A full slab tall for the TOP storey and one pitch for the rest, which is what the overlap
-        // costs each of them. `clipToBounds` is what makes it an overlap rather than a
-        // collision: the slab below is pulled UP by that much and would otherwise paint over the
-        // face of the storey above it, name and all.
+        // costs each of them. The clip that makes it an overlap is inside the Canvas and is a SHAPE,
+        // not this rectangle - see `covered` there.
         modifier =
             Modifier
                 .fillMaxWidth()
                 .height(if (isTop) metrics.slab else metrics.pitch)
-                .clipToBounds()
                 .hoverable(interaction)
                 .clickable(onClick = onClick),
     ) {
-        // The slab is always drawn whole, then slid up under the storey above and clipped. Drawing
-        // a partial slab instead would mean clipping the plate, its panes and the outline by hand;
-        // sliding it means every floor draws exactly the same shape and the band decides how much
-        // of it survives. No z-order to get right either - nothing overlaps anything, so the list
-        // can stay in reading order.
+        // The slab is always drawn whole, then slid up under the storey above and clipped to what
+        // that storey leaves showing. Drawing a partial slab instead would mean clipping the plate,
+        // its panes and the outline by hand; sliding it means every floor draws exactly the same
+        // shape. No z-order to get right either - what is hidden is never drawn, so the list can
+        // stay in reading order.
         Box(
             modifier =
                 Modifier
@@ -523,6 +521,7 @@ private fun Floor(
             ) {
                 val skew = SKEW.toPx()
                 val riser = metrics.riser.toPx()
+                val overlapPx = metrics.overlap.toPx()
                 val depth = size.height - riser
                 val plateWidth = size.width - skew
                 // A panel dragged narrower than the projection needs draws nothing rather than folding
@@ -557,34 +556,61 @@ private fun Floor(
                 val frontRight = at(1f, 1f)
                 val backRight = at(1f, 0f)
 
-                // The two vertical faces first, so the plate lands on top of them. A vertical extrusion
-                // stays vertical in this projection, which is why these are a straight drop.
-                val front = quad(frontLeft, frontRight, dropped(frontRight), dropped(frontLeft))
-                val side = quad(backRight, frontRight, dropped(frontRight), dropped(backRight))
-                drawPath(front, riserFront)
-                drawPath(side, riserSide)
+                fun drawSlab() {
+                    // The two vertical faces first, so the plate lands on top of them. A vertical
+                    // extrusion stays vertical in this projection, so these are a straight drop.
+                    val front = quad(frontLeft, frontRight, dropped(frontRight), dropped(frontLeft))
+                    val side = quad(backRight, frontRight, dropped(frontRight), dropped(backRight))
+                    drawPath(front, riserFront)
+                    drawPath(side, riserSide)
 
-                val plate = quad(at(0f, 0f), at(1f, 0f), at(1f, 1f), at(0f, 1f))
-                drawPath(plate, plateBase)
+                    val plate = quad(at(0f, 0f), at(1f, 0f), at(1f, 1f), at(0f, 1f))
+                    drawPath(plate, plateBase)
 
-                panes.forEachIndexed { index, pane ->
-                    val shape =
-                        quad(
-                            at(pane.area.left, pane.area.top),
-                            at(pane.area.right, pane.area.top),
-                            at(pane.area.right, pane.area.bottom),
-                            at(pane.area.left, pane.area.bottom),
-                        )
-                    val fill = paneFills.getOrElse(index) { Color.Transparent }
-                    if (fill != Color.Transparent) drawPath(shape, fill)
-                    // Outlined whether or not it was filled, so the divisions survive both an empty
-                    // pane and the label sitting over them.
-                    drawPath(shape, paneEdge, style = Stroke(width = stroke))
+                    panes.forEachIndexed { index, pane ->
+                        val shape =
+                            quad(
+                                at(pane.area.left, pane.area.top),
+                                at(pane.area.right, pane.area.top),
+                                at(pane.area.right, pane.area.bottom),
+                                at(pane.area.left, pane.area.bottom),
+                            )
+                        val fill = paneFills.getOrElse(index) { Color.Transparent }
+                        if (fill != Color.Transparent) drawPath(shape, fill)
+                        // Outlined whether or not it was filled, so the divisions survive both an
+                        // empty pane and the label sitting over them.
+                        drawPath(shape, paneEdge, style = Stroke(width = stroke))
+                    }
+
+                    drawPath(front, outline, style = Stroke(width = stroke))
+                    drawPath(side, outline, style = Stroke(width = stroke))
+                    drawPath(plate, outline, style = Stroke(width = stroke))
                 }
 
-                drawPath(front, outline, style = Stroke(width = stroke))
-                drawPath(side, outline, style = Stroke(width = stroke))
-                drawPath(plate, outline, style = Stroke(width = stroke))
+                if (isTop) {
+                    drawSlab()
+                    return@Canvas
+                }
+
+                // Everything the storey ABOVE leaves showing, which is not a rectangle and was
+                // drawn as one. That storey's underside runs level across its front face and then
+                // SLOPES UP along its side face, so a horizontal cut at the band's top took the
+                // back-right corner off every plate but the top one - visible as a flat crop
+                // across the right of each slab, with nothing above it to justify the cut.
+                //
+                // This slab sits `overlap` lower than the one above, so in these coordinates that
+                // underside is `overlap` down at the front and a whole plate-depth higher at the
+                // far right, where the side face's bottom edge has climbed.
+                val covered =
+                    Path().apply {
+                        moveTo(0f, overlapPx)
+                        lineTo(plateWidth, overlapPx)
+                        lineTo(size.width, overlapPx - depth)
+                        lineTo(size.width, size.height)
+                        lineTo(0f, size.height)
+                        close()
+                    }
+                clipPath(covered) { drawSlab() }
             }
 
             // On the FRONT FACE, under the plate. `at(0f, 1f)` puts that face's left edge at the

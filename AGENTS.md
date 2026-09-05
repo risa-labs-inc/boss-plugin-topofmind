@@ -340,13 +340,19 @@ through the same `switchToWorkspace` the workspace headers use.
   the same `WorkspaceTabStructure` the tree is drawing, in the same order, so a storey and its group
   in the tree can never disagree about the shape of a workspace and always sit in the same
   position.
-- **The storeys overlap by sliding UP and clipping, not by overflowing DOWN.** Flush was not enough:
-  with the slabs merely touching, the left silhouette stepped in by `SKEW` at every seam - a floor's
-  face ends at its plate's front-left corner and the next floor's plate begins at its back-left one -
-  so the outline restarted at each storey. Every floor draws a whole slab; each one below the top is
-  then slid up by `FLOOR_OVERLAP` inside a band that much shorter, with `clipToBounds` keeping it
-  out of the face above. The picture is identical to letting the storey above paint over it, and
-  nothing overlaps anything, so **there is no z-order to get right**.
+- **The storeys overlap by sliding UP and clipping to a SHAPE, not by overflowing DOWN.** Flush was
+  not enough: with the slabs merely touching, the left silhouette stepped in by `SKEW` at every seam
+  - a floor's face ends at its plate's front-left corner and the next floor's plate begins at its
+  back-left one - so the outline restarted at each storey. Every floor draws a whole slab; each one
+  below the top is then slid up by `FLOOR_OVERLAP` inside a band that much shorter, and clipped to
+  what the storey above leaves showing. The picture is identical to letting that storey paint over
+  it, and nothing overlaps anything, so **there is no z-order to get right**.
+  - **The clip is `clipPath`, not `clipToBounds`, and that difference was a visible bug.** A slab's
+    underside runs level across its front face and then SLOPES UP along its side face, so the region
+    it covers is not a rectangle. Clipping the band rectangle took the back-right corner off every
+    plate but the top one - a flat crop across the right of each slab, with nothing above it to
+    justify the cut. The path follows that underside: `overlap` down at the front, a whole
+    plate-depth higher at the far right.
   - The first attempt did overflow downward, which meant the UPPER floor had to paint last, which a
     `LazyColumn` will not do (it paints in index order) - so it used `reverseLayout = true` with the
     items fed bottom-first. That worked and cost the list its top anchor: with more floors than fit,
