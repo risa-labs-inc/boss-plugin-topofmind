@@ -38,8 +38,9 @@ a move is a *move of a running thing* rather than a close and reopen.
 
 ```
 TopofmindDynamicPlugin  registers the panel + the tabs_* MCP tools
-TopofmindComponent      owns TabTreeState, TabDragState and SplitPaneExpansion, one set per panel
+TopofmindComponent      owns TabTreeState, TabDragState, SplitPaneExpansion and FloorsViewState
 TopOfMindPanel          the panel: the tree, workspace switching, the move, and the dialogs
+WorkspaceFloors         the workspaces as isometric storeys, between the tree and the footer
 WorkspaceFooter         the workspace actions + the search button, pinned under the tree
 QuickSwitcher           the switcher over EVERY window's tabs: search, arrows, Enter
 PanelDialogs            which dialog a panel is showing, and which panel a request lands on
@@ -238,6 +239,65 @@ delete one - and then, rightmost, a search button that raises the quick switcher
   the host's own action row (`SIDEBAR_ICON_SIZE` = 32dp buttons wrapping `BossActionButton`'s
   20dp `iconSize` at 2dp content padding); a 14dp glyph is a tab row's bare icon and read as a
   smaller class of control next to the host's.
+
+### The floors view
+
+`WorkspaceFloors.kt` draws every workspace this window is running as a storey of a building, in a
+fixed-height block between the tree and the footer. The tree says where a tab is by naming its
+workspace and its pane; this says it as a shape. Clicking a storey switches to that workspace,
+through the same `switchToWorkspace` the workspace headers use.
+
+- **It is an isometric stack that does NOT drift sideways as it rises, and that is a width
+  decision.** The hand-drawn version of this offsets each floor a little further right than the one
+  below, which is a cavalier oblique: the skew is then paid once per storey, so eight workspaces at
+  22dp a floor would want 176dp of lateral room before the first plate is drawn, in a sidebar that
+  has about 180dp in total. In a true isometric the vertical world axis maps to the vertical screen
+  axis, so a building's corner columns are drawn as vertical lines and congruent floor plates sit
+  squarely above one another. That is what is drawn here, and it is why the skew is a flat 22dp for
+  the whole building however many storeys it has.
+- **The numbers, so the next change can be judged against them.** 10dp of inset each side, `SKEW`
+  22dp, plate 18dp deep with a 4dp riser and a 5dp gap, so a band is 27dp. At the sidebar's usual
+  200dp that leaves a 158dp plate: a two-pane split draws two 79dp blocks, a four-way split four
+  39dp blocks. Dragged down to 120dp - which the footer's own `FlowRow` note says is reachable -
+  the plate is 78dp and a four-way split still draws four 19dp blocks. The shallow-perspective
+  fallback (flat rectangles, each slightly narrower as it recedes) was not needed: nothing here
+  becomes a sliver, because the projection's cost is a constant rather than a per-floor one.
+- **The label goes ON the plate, not beside it.** A name in its own column to the right wants about
+  60dp permanently, which at 120dp would leave the plate under 40dp - four panes of 10dp, the exact
+  illegible outcome the view exists to avoid. On the plate the name costs nothing horizontally, and
+  the pane edges stay drawn as 1dp lines underneath it. It is inset by `SKEW / 2 + 5dp` at both
+  ends, because at the plate's vertical middle its left edge has travelled half the skew inwards
+  and its right edge is half the skew short of the drawing area.
+- **Structurally true, schematically proportioned - the same caveat as `SplitPositionGlyph`.**
+  `WorkspaceFloorPlan.panesOf` divides each level into EQUAL parts, so a divider dragged to 20/80
+  draws as halves. `SplitConfig` carries no ratio, and a workspace that is not on screen was never
+  measured, so not even the host has bounds for it - the host's `SplitMap` can be honest about
+  proportion only because it is handed the panes' measured rectangles. No ratio is invented from
+  tab counts or anything else. If the api ever exposes measured pane rects, this and
+  `SplitPositionGlyph` are the two functions that should start using them.
+- **It reads `TabTreeBuilder`'s output, not `SplitConfig` a second time.** The floors are built from
+  the same `WorkspaceTabStructure` the tree is drawing, in the same `workspaceOrder`, so a storey
+  and its group in the tree can never disagree about the shape of a workspace and always sit in the
+  same position. That includes the flat fallback the builder uses when the layout's panel count
+  does not match the running one: it lands here as a single undivided plate.
+- **Hit-testing is per floor BAND, not per parallelogram.** Selection is per workspace, so the
+  fixed-height `Box` takes the click and the `Canvas` inside it only draws. Inverting the projection
+  on every press would buy a hit test nobody could tell apart from this one.
+- **`heightIn(max = ...)`, not `height(...)`.** Five storeys are on screen and the rest scroll. A
+  window running three workspaces gives the room it does not need back to the tree, where a fixed
+  height would hold it empty; capping the floor COUNT instead would have put a "+N more" in a panel
+  where the thing behind it cannot be clicked.
+- **`FloorsViewState` is a field on `TopofmindComponent`, never a top-level object** - the rule
+  `TabTreeState`, `TabDragState`, `SplitPaneExpansion` and `PanelDialogState` are all there for.
+  Collapsing the stack in one window must not collapse it in another. The toggle exists at all
+  because the block is fixed-height chrome in a sidebar that also has to hold the tree.
+- **The lit floor is accent FILL; its label is `BossColors.accentText`.** `AccentColor` is the fill
+  token and lands under 4.5:1 as text, which is written down under Colours and has caught this
+  plugin before. The pane being worked in inside the lit floor is filled harder still, off
+  `activeTabsProvider.activePanelId` - which is null for every workspace that is not on screen, so
+  only the lit floor ever marks one.
+- **An empty pane is drawn as an outline with no fill.** A pane with no tabs in it is part of the
+  split and should be visible as one; filling it would claim there is something in it.
 
 ### The headers
 

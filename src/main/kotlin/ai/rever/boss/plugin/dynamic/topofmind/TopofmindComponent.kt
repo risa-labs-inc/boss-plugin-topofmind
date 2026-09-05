@@ -23,8 +23,9 @@ import kotlinx.coroutines.CoroutineScope
  * Process-global state meant two windows showing this panel shared one drag and one set of open
  * groups, so collapsing a workspace in one collapsed it in the other. That is why
  * [SplitPaneExpansion] - which pane the pointer has chosen to open - is a field here too, and not
- * the `object` the host's equivalent could get away with being. [PanelDialogState] is the newest
- * member of that list, for the same reason: two windows must not share one dialog.
+ * the `object` the host's equivalent could get away with being. [PanelDialogState] and
+ * [FloorsViewState] are the newest members of that list, for the same reason: two windows must not
+ * share one dialog, and collapsing the floors stack in one must not collapse it in the other.
  */
 @Suppress("LongParameterList")
 class TopofmindComponent(
@@ -57,6 +58,7 @@ class TopofmindComponent(
     private val dragState = TabDragState()
     private val paneExpansion = SplitPaneExpansion()
     private val panelDialogs = PanelDialogState()
+    private val floorsState = FloorsViewState()
 
     @Composable
     override fun Content() {
@@ -80,6 +82,7 @@ class TopofmindComponent(
             dragState = dragState,
             paneExpansion = paneExpansion,
             panelDialogs = panelDialogs,
+            floorsState = floorsState,
             windowId = windowId,
             scope = scope,
         )
