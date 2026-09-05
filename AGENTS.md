@@ -215,6 +215,9 @@ delete one - and then, rightmost, a search button that raises the quick switcher
 - **It is a sibling of the LazyColumn, not an item in it.** The list takes `weight(1f)` and the
   footer sits under it, so the actions stay put while the tree scrolls. The empty state takes a
   weight for the same reason - `fillMaxSize()` there pushed the footer off the bottom.
+- **No rule above the actions.** It separated the footer from the tree when the two were adjacent.
+  The floors stack sits between them now, and a line directly under the building read as ground the
+  building was standing on.
 - **The search button is always drawn, the workspace buttons are not.** The four workspace actions
   moved into a private `WorkspaceActions`, emitted straight into the footer's `FlowRow`, so its
   null-provider early returns refuse those buttons without refusing the row, the rule and the search
@@ -271,15 +274,14 @@ through the same `switchToWorkspace` the workspace headers use.
   squarely above one another. That is what is drawn here, and it is why the skew is a flat 22dp for
   the whole building however many storeys it has.
 - **The numbers, so the next change can be judged against them.** 10dp of inset each side, `SKEW`
-  22dp, a 26dp plate over an 18dp riser and **nothing between one storey and the next**, so a band
-  is 44dp and three are on screen - 132dp at the cap, about what the block took when a floor was
-  27dp of a five-storey stack. The riser started at 4dp and the plate at 18dp, which made a storey
-  read as a card with a line under it; the riser is what carries the workspace NAME now, which is
-  most of why it is 18. `FLOOR_GAP` is 0 for the same reason and is kept as a named constant rather
-  than deleted: it is the one number that decides between "a building" and "a pile of cards", and
-  the seam between two storeys is exactly the pair of outlines that meet there. An 8dp gap does sit
-  under the rule ABOVE the stack, or the top plate's back edge lands on that rule and the two read
-  as one line. At the sidebar's usual 200dp the plate is 158dp wide: a two-pane split draws two 79dp
+  22dp, a 26dp plate over an 18dp riser, and each storey **bites 6dp into the one below** - so a
+  slab is 44dp, a band is 38dp, and three of them plus the bottom slab's own full height come to
+  120dp at the cap. The riser started at 4dp and the plate at 18dp, which made a storey read as a
+  card with a line under it; the riser is what carries the workspace NAME now, which is most of why
+  it is 18. An 8dp gap does sit under the rule ABOVE the stack, or the top plate's back edge lands
+  on that rule and the two read as one line. There is no rule BELOW: a line under the building read
+  as ground it was standing on rather than as the top of the footer, so `WorkspaceActionsFooter`
+  draws none. At the sidebar's usual 200dp the plate is 158dp wide: a two-pane split draws two 79dp
   blocks, a four-way split four 39dp blocks. Dragged down to 120dp - which the footer's own
   `FlowRow` note says is reachable - the plate is 78dp and a four-way split still draws four 19dp
   blocks. The shallow-perspective fallback (flat rectangles, each slightly narrower as it recedes)
@@ -310,6 +312,17 @@ through the same `switchToWorkspace` the workspace headers use.
   the same `WorkspaceTabStructure` the tree is drawing, in the same order, so a storey and its group
   in the tree can never disagree about the shape of a workspace and always sit in the same
   position.
+- **The storeys overlap, and the list is REVERSED to make that a building.** Flush was not enough:
+  with the slabs merely touching, the left silhouette stepped in by `SKEW` at every seam - a floor's
+  face ends at its plate's front-left corner and the next floor's plate begins at its back-left one -
+  so the outline restarted at each storey. Each slab is `requiredHeight(SLAB_HEIGHT)` inside a band
+  that is `FLOOR_OVERLAP` shorter, and the surplus lands on the floor below, which is where a real
+  storey's slab goes. That only works if the UPPER floor is painted last, and a `LazyColumn` paints
+  its items in index order - so the items are fed bottom floor first with `reverseLayout = true`,
+  which reads top-down on screen and draws bottom-up. The natural order put every lower floor in
+  front of the one above and buried the faces carrying the names. A leading `item` of
+  `FLOOR_OVERLAP` (the BOTTOM of the list, under reversal) gives the bottom slab the height nothing
+  bites into.
 - **Hit-testing is per floor BAND, not per parallelogram.** Selection is per workspace, so the
   fixed-height `Box` takes the click and the `Canvas` inside it only draws. Inverting the projection
   on every press would buy a hit test nobody could tell apart from this one.
