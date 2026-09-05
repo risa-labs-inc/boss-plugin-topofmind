@@ -9,6 +9,7 @@ import ai.rever.boss.plugin.api.PanelInfo
 import ai.rever.boss.plugin.api.SplitViewOperations
 import ai.rever.boss.plugin.api.WorkspaceDataProvider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import com.arkivanov.decompose.ComponentContext
 import kotlinx.coroutines.CoroutineScope
 
@@ -22,7 +23,8 @@ import kotlinx.coroutines.CoroutineScope
  * Process-global state meant two windows showing this panel shared one drag and one set of open
  * groups, so collapsing a workspace in one collapsed it in the other. That is why
  * [SplitPaneExpansion] - which pane the pointer has chosen to open - is a field here too, and not
- * the `object` the host's equivalent could get away with being.
+ * the `object` the host's equivalent could get away with being. [WorkspacePickerState] is the
+ * newest member of that list, for the same reason: two windows must not share one dialog.
  */
 @Suppress("LongParameterList")
 class TopofmindComponent(
@@ -37,15 +39,28 @@ class TopofmindComponent(
     // exactly like contextMenuProvider, and a missing one hides its button rather than breaking it.
     private val filePickerProvider: FilePickerProvider?,
     private val genericDialogProvider: GenericDialogProvider?,
+    // Plugin-scoped, shared by every panel: it is the thing that decides WHICH panel a request
+    // from outside the composition opens the picker on. See WorkspacePicker.kt.
+    private val pickerRequests: WorkspacePickerRequests,
     private val scope: CoroutineScope,
 ) : PanelComponentWithUI,
     ComponentContext by ctx {
     private val treeState = TabTreeState()
     private val dragState = TabDragState()
     private val paneExpansion = SplitPaneExpansion()
+    private val picker = WorkspacePickerState()
 
     @Composable
     override fun Content() {
+        // Registered for as long as this panel is COMPOSED, not for as long as the component
+        // exists. A component the host is holding for a panel that is currently closed has no
+        // dialog on screen to raise, and offering it would send a request into a panel nobody can
+        // see. Attaching last-in-first-out is also how "the front panel" gets its meaning.
+        DisposableEffect(Unit) {
+            pickerRequests.attach(picker)
+            onDispose { pickerRequests.detach(picker) }
+        }
+
         TopOfMindContent(
             activeTabsProvider = activeTabsProvider,
             workspaceDataProvider = workspaceDataProvider,
@@ -56,6 +71,7 @@ class TopofmindComponent(
             treeState = treeState,
             dragState = dragState,
             paneExpansion = paneExpansion,
+            picker = picker,
             scope = scope,
         )
     }
