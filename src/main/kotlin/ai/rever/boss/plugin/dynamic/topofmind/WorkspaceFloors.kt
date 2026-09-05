@@ -407,9 +407,9 @@ internal fun WorkspaceFloors(
                 Floor(
                     node = node,
                     metrics = metrics,
-                    // Nothing is stacked on the top floor, so it is the one storey that shows its
-                    // whole slab - back edge included. Every other floor draws only the part the
-                    // storey above does not cover.
+                    // Nothing is stacked on the top floor, so it shows its whole slab - back edge
+                    // included. The selected floor does too, by standing clear. Every other floor
+                    // draws only the part the storey above does not cover.
                     isTop = index == 0,
                     isCurrent = currentWorkspaceId == node.workspaceId,
                     activePanelId = activePanelId,
@@ -446,6 +446,17 @@ private fun Floor(
     val panes = remember(node.tabStructure) { WorkspaceFloorPlan.panesOf(node.tabStructure) }
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+
+    // A storey with nothing stacked on it shows its WHOLE slab - back edge, plate corner and all -
+    // and takes a full slab of room to do it. Two floors qualify.
+    //
+    // The top one, because nothing is above it. And the SELECTED one, which is lifted clear of the
+    // stack rather than tucked under the storey above: the workspace you are in is the one whose
+    // panes are worth reading, and it was the one arriving half-covered with its accent outline cut
+    // off at the corner. It is lifted by making ROOM, not by drawing over its neighbour - a lower
+    // storey painted on top of the one above would cover the face carrying that workspace's name,
+    // and a building does not work that way either.
+    val standsFree = isTop || isCurrent
 
     val accent = BossThemeColors.AccentColor
     val lit = isCurrent || hovered
@@ -491,13 +502,13 @@ private fun Floor(
         // The BAND takes the click, not the parallelogram: selection is per floor, so inverting the
         // projection on every press would buy a hit test nobody can tell apart from this one.
         //
-        // A full slab tall for the TOP storey and one pitch for the rest, which is what the overlap
-        // costs each of them. The clip that makes it an overlap is inside the Canvas and is a SHAPE,
-        // not this rectangle - see `covered` there.
+        // A full slab tall for a storey that STANDS FREE and one pitch for the rest, which is what
+        // the overlap costs each of them. The clip that makes it an overlap is inside the Canvas
+        // and is a SHAPE, not this rectangle - see `covered` there.
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(if (isTop) metrics.slab else metrics.pitch)
+                .height(if (standsFree) metrics.slab else metrics.pitch)
                 .hoverable(interaction)
                 .clickable(onClick = onClick),
     ) {
@@ -511,7 +522,7 @@ private fun Floor(
                 Modifier
                     .fillMaxWidth()
                     .requiredHeight(metrics.slab)
-                    .offset(y = if (isTop) 0.dp else -metrics.overlap),
+                    .offset(y = if (standsFree) 0.dp else -metrics.overlap),
         ) {
             Canvas(
                 modifier =
@@ -587,7 +598,7 @@ private fun Floor(
                     drawPath(plate, outline, style = Stroke(width = stroke))
                 }
 
-                if (isTop) {
+                if (standsFree) {
                     drawSlab()
                     return@Canvas
                 }
