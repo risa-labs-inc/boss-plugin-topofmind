@@ -33,6 +33,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -70,6 +74,10 @@ private val WORKSPACE_GAP = 6.dp
 // textSecondary that lifts to textPrimary under the pointer.
 private val ACTION_TARGET = HEADER_HEIGHT
 private val ACTION_GLYPH = 12.dp
+
+// The host's split-diagram size, verbatim (TabBarGroupHeader's GLYPH_WIDTH / GLYPH_HEIGHT).
+private val GLYPH_WIDTH = 16.dp
+private val GLYPH_HEIGHT = 12.dp
 private val ACTION_RADIUS = RoundedCornerShape(4.dp)
 
 private const val COUNT_ALPHA = 0.7f
@@ -287,13 +295,9 @@ internal fun SplitSectionHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(SECTION_GAP),
     ) {
-        Icon(
-            imageVector =
-                if (isExpanded) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = if (isExpanded) "Collapse" else "Expand",
-            modifier = Modifier.size(CHEVRON_SIZE),
-            tint = BossThemeColors.TextSecondary,
-        )
+        // The tab bar's split diagram, not a chevron. Losing the chevron loses nothing: the whole
+        // row is the toggle, and its expanded state is already legible from whether rows follow it.
+        SplitPositionGlyph(sectionName = sectionName, expanded = isExpanded)
         // weight(1f) on the label itself, as the host has it, rather than a spacer after it: a
         // spacer let the label push the trailing action off a narrow panel instead of ellipsising.
         Text(
@@ -313,6 +317,61 @@ internal fun SplitSectionHeader(
                 onClick = close,
             )
         }
+    }
+}
+
+/**
+ * The split, drawn: an outline of the whole area with this section's half filled in.
+ *
+ * The host's `SplitPositionGlyph` in shape and size, but built from the section's NAME rather than
+ * from a measured rectangle, and that difference is the whole caveat. `SplitConfig` carries
+ * `VerticalSplit(left, right)` and `HorizontalSplit(top, bottom)` with **no ratio**, so the fill is
+ * a schematic half - it says WHICH side this pane is on, which is exactly what "Left" already
+ * claims, and it does not say how the split is actually divided. A pane dragged to 20/80 still
+ * draws as a half. Read it as a position marker, not a diagram of the layout.
+ *
+ * The host's version can be truthful about proportion because it is handed measured pane rects. If
+ * the api ever exposes those, this is the function that should start using them.
+ */
+@Composable
+private fun SplitPositionGlyph(
+    sectionName: String,
+    expanded: Boolean,
+) {
+    // Fractions of the frame, matching the host's PaneGlyph shape (left, top, right, bottom).
+    val fill =
+        when (sectionName.lowercase()) {
+            "left" -> Rect(0f, 0f, 0.5f, 1f)
+            "right" -> Rect(0.5f, 0f, 1f, 1f)
+            "top" -> Rect(0f, 0f, 1f, 0.5f)
+            "bottom" -> Rect(0f, 0.5f, 1f, 1f)
+            // A section this does not recognise gets the frame and no fill, for the host's stated
+            // reason: an unmeasured layout drawn as a filled box is a claim about the split rather
+            // than an absence of one.
+            else -> null
+        }
+    val outline = BossThemeColors.BorderColor
+    // Filled brighter when the group is open, so the glyph carries the state the chevron used to.
+    val tint =
+        if (expanded) BossThemeColors.TextPrimary else BossThemeColors.TextSecondary
+
+    Canvas(modifier = Modifier.size(width = GLYPH_WIDTH, height = GLYPH_HEIGHT)) {
+        val stroke = 1.dp.toPx()
+        drawRect(
+            color = outline,
+            topLeft = Offset(stroke / 2f, stroke / 2f),
+            size = Size(size.width - stroke, size.height - stroke),
+            style = Stroke(width = stroke),
+        )
+        if (fill == null) return@Canvas
+        // Inset by the outline so the fill sits INSIDE the frame rather than on top of it: a pane
+        // that touches an edge should still read as bounded by the window.
+        val inner = Size(size.width - stroke * 2f, size.height - stroke * 2f)
+        drawRect(
+            color = tint,
+            topLeft = Offset(stroke + fill.left * inner.width, stroke + fill.top * inner.height),
+            size = Size((fill.right - fill.left) * inner.width, (fill.bottom - fill.top) * inner.height),
+        )
     }
 }
 
