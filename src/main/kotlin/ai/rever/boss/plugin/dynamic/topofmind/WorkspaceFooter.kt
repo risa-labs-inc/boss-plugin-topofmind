@@ -28,7 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.requiredWidthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -286,7 +286,13 @@ private fun WorkspaceMenu(
             Surface(
                 modifier =
                     Modifier
-                        .widthIn(min = MENU_MIN_WIDTH, max = MENU_MAX_WIDTH)
+                        // requiredWidthIn, NOT widthIn. BossPopup measures its content against the
+                        // constraints of whatever it is composed inside, and that is a 32dp icon
+                        // button - widthIn cannot exceed an incoming maxWidth, so it clamped to 32dp
+                        // and the menu rendered as a bare strip with every name invisible. The
+                        // required* family ignores the incoming constraints, which is the only way
+                        // for a menu to be wider than the control that opens it.
+                        .requiredWidthIn(min = MENU_MIN_WIDTH, max = MENU_MAX_WIDTH)
                         .border(1.dp, BossThemeColors.BorderColor, MENU_RADIUS),
                 shape = MENU_RADIUS,
                 color = BossColors.contextMenuBackground,
