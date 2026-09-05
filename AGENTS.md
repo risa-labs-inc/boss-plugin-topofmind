@@ -263,150 +263,73 @@ delete one - and then, rightmost, a search button that raises the quick switcher
 
 ### The floors view
 
-`WorkspaceFloors.kt` draws every workspace this window is running as a storey of a building, in a
+`WorkspaceFloors.kt` draws every workspace this window is running as a floor of a building, in a
 fixed-height block between the tree and the footer. The tree says where a tab is by naming its
-workspace and its pane; this says it as a shape. Clicking a storey switches to that workspace,
+workspace and its pane; this says it as a shape. Clicking a floor switches to that workspace,
 through the same `switchToWorkspace` the workspace headers use.
 
-- **It is an isometric stack that does NOT drift sideways as it rises, and that is a width
-  decision.** The hand-drawn version of this offsets each floor a little further right than the one
-  below, which is a cavalier oblique: the skew is then paid once per storey, so eight workspaces at
-  22dp a floor would want 176dp of lateral room before the first plate is drawn, in a sidebar that
-  has about 180dp in total. In a true isometric the vertical world axis maps to the vertical screen
-  axis, so a building's corner columns are drawn as vertical lines and congruent floor plates sit
-  squarely above one another. That is what is drawn here, and it is why the skew is a flat 22dp for
-  the whole building however many storeys it has.
-- **The HEIGHT is fixed and the storeys divide it.** `FLOORS_HEIGHT` is 140dp, sized against the
+- **It is a FRONT ELEVATION - flat rectangles, no projection - and getting there cost five
+  rewrites.** It was isometric first: a plate seen from above with two extruded faces. Every version
+  of it foundered on one corner. Two identical boxes stacked with no gap hide each other's top faces
+  exactly, so any version that showed a lower workspace's plate was drawing a thing that cannot
+  exist, and that plate's back-right corner had nowhere to go. It came back as a wedge poking out
+  past the face above, then as a flat crop when the clip was a rectangle, then as a column, then as
+  a skirt, then as a step where each lower plate grew deeper. Each was rejected on sight. A front
+  elevation has no such corner: floors are rectangles, they stack, the drawing is finished - and it
+  says the same three things at half the height. **If someone proposes making it 3D again, this
+  paragraph is the reason not to.**
+- **The panes need no transform.** `WorkspaceFloorPlan.panesOf` answers in a 0..1 box, so in a front
+  elevation the fractions ARE the rectangle: a left/right split draws as two columns, a top/bottom
+  one as two rows. The isometric version existed to make that box look like a plate seen from above,
+  which is the only thing the projection ever bought.
+- **Structurally true, schematically proportioned.** Which panes there are and which side each one
+  is on is exact. The PROPORTIONS are not, and cannot be: `paneAreaFor` maps a pane's NAME back to
+  a rectangle, and a name says which edges a pane touches and nothing about where the divider sits,
+  so a split dragged to 20/80 draws as halves. The host's own `SplitMap` can be honest about
+  proportion because it is handed the panes' measured rectangles; nothing on the plugin api hands a
+  plugin those. No ratio is invented from tab counts or anything else.
+- **The HEIGHT is fixed and the floors divide it.** `FLOORS_HEIGHT` is 140dp, sized against the
   host's own navigation map (a 1.5 aspect-ratio box inside a 10dp inset, so about that tall in a
   200dp sidebar). The two are the same kind of thing, a small picture of where you are - and every
-  number in here used to be a constant, so six workspaces drew a building six times as tall as one
-  and pushed the tree out of the panel a row at a time. `floorMetricsFor(count)` solves
-  `height = count * slab - (count - 1) * FLOOR_OVERLAP` for the slab. **Only the SLAB is dynamic**:
-  the bite between two storeys is a constant 12dp wherever it is. A fraction of the slab was the
-  other option and it makes the bite deepest exactly when there are two workspaces and the plates
-  are largest and most worth seeing; a constant is also the thing a reader can hold onto, since the
-  storeys resize and the join between them does not.
-- **What the bite is FOR.** The step left in the left silhouette at a seam is
-  `(plate - overlap) / plate * SKEW`, because the plate's left edge travels the whole skew over the
-  whole plate depth - so with the storeys merely touching, the outline stepped in by the full 22dp
-  at every seam and the stack read as a pile of trays. Closing it entirely means biting the WHOLE
-  plate - identical boxes stacked with no gap hide each other's top faces exactly - which is the
-  version with no panes visible below the top floor, and the panes are what this view is for.
-- **The clamps give the fixed height up, each in a chosen direction.** The height is exact for three
-  to five workspaces; outside that a clamp bites. `MAX_SLAB` (56dp) stops one or two workspaces
-  drawing 70-80dp slabs; the stack is then SHORTER than 140dp and the tree gets the difference.
-  `MIN_SLAB` (30dp), `MIN_PITCH` (18dp) and `MAX_OVERLAP_OF_PLATE` (0.55) stop a dozen workspaces
-  becoming slivers with two names on top of each other; the stack is then TALLER and scrolls inside
-  its cap. `MIN_RISER` (16dp) keeps a face able to hold an 11sp name whatever the slab is, so the
-  PLATE gives way first - at the minimum slab that is a 14dp plate, which still shows a two- or
-  four-way split. `MAX_OVERLAP_OF_PLATE` is the one clamp on the bite itself: a constant bite is
-  only constant while there is a plate to take it out of. `FloorMetricsTest` pins the fixed height
-  over 3..5 storeys, that the bite does not move with the stack size, and each clamp's direction;
-  three of those fail against an overlap derived from the plate.
-- **The rest of the geometry, so the next change can be judged against it.** 10dp of inset each
-  side and `SKEW` 22dp, both fixed. The riser started at 4dp and the plate at 18dp, which made a
-  storey read as a card with a line under it; the riser is what carries the workspace NAME now,
-  which is why it has a share of the slab and a floor of its own. An 8dp gap sits under the rule
-  ABOVE the stack, or the top plate's back edge lands on that rule and the two read as one line.
-  There is no rule BELOW: a line under the building read as ground it was standing on rather than as
-  the top of the footer, so `WorkspaceActionsFooter` draws none. At the sidebar's usual 200dp the
-  plate is 158dp wide: a two-pane split draws two 79dp blocks, a four-way split four 39dp blocks.
-  Dragged down to 120dp - which the footer's own `FlowRow` note says is reachable - the plate is
-  78dp and a four-way split still draws four 19dp blocks. The shallow-perspective fallback (flat
-  rectangles, each slightly narrower as it recedes) was not needed: nothing here becomes a sliver,
-  because the projection's cost is a constant rather than a per-floor one.
-- **The label goes on the slab, not beside it, and on the FACE rather than the plate.** A name in
-  its own column to the right wants about 60dp permanently, which at 120dp would leave the plate
-  under 40dp - four panes of 10dp, the exact illegible outcome the view exists to avoid. It was on
-  the plate first, where it sat across the very pane rectangles it was captioning; the front face is
-  the caption surface, and the plate is the picture. The face is a plain rectangle - a vertical
-  extrusion stays vertical in this projection - so the text needs no clearance for the slant, just
-  8dp at each end plus `SKEW` on the trailing side, since the face's right edge is the plate's
-  front-right corner.
-- **Structurally true, schematically proportioned - the same caveat as `SplitPositionGlyph`.**
-  A pane's place on the plate comes from `paneAreaFor`, so a divider dragged to 20/80 draws as
-  halves: the name says which edges the pane touches and nothing about where the divider is. No
-  ratio is invented from tab counts or anything else. If the api ever exposes measured pane rects,
-  this and `SplitPositionGlyph` are the two functions that should start using them.
-- **The exact placement is taken only when the names actually tile the plate.** "Left" plus
-  "Top right" plus "Bottom right" describes an arrangement completely and is drawn as it is.
-  "Left" plus "Pane 2" plus "Right" is the three-column split - the host numbers the middle pane
-  because no honest name fits - and taking the two names at face value would draw the third pane on
-  top of the other two, so that falls back to equal slices. `tiles` tests coverage as well as
-  overlap: overlap alone would accept "Left" and "Top" and leave half the plate blank. The fallback
-  still reads the AXIS from the names, because a pane called "Top" or "Bottom" runs the full width
-  and slicing into columns would draw a three-row split lying on its side.
+  number in here used to be a constant, so six workspaces drew a block six times as tall as one and
+  pushed the tree out of the panel a row at a time. `floorMetricsFor(count)` solves
+  `height = count * floor + (count - 1) * FLOOR_GAP` for the floor. Only the FLOOR is dynamic; the
+  3dp of air between two of them is the same at every stack size.
+- **Two clamps give the fixed height up, each in a chosen direction.** The height is exact for three
+  or four workspaces. `MAX_FLOOR` (48dp) stops one or two drawing enormous bars; the stack is then
+  SHORTER than 140dp and the tree gets the difference. `MIN_FLOOR` (26dp) stops a dozen becoming
+  slivers with unreadable names; the stack is then TALLER and scrolls inside its cap.
+  `FloorMetricsTest` pins the exact height over 3..4, that past five it only ever GROWS, that the
+  gap never moves, and each clamp's direction.
 - **It reads `TabTreeBuilder`'s output, not `SplitConfig` a second time.** The floors are built from
-  the same `WorkspaceTabStructure` the tree is drawing, in the same order, so a storey and its group
-  in the tree can never disagree about the shape of a workspace and always sit in the same
-  position.
-- **The stack is a STEP, and that is the only geometry in which every edge closes.** Two identical
-  boxes cannot overlap: push the lower one up into the upper one and its plate is where the upper
-  box's underside is, so its back-right corner has nowhere coherent to be. It poked out as a wedge,
-  was cropped flat, was hidden behind a column, was covered by a skirt - four renderings of one
-  impossible geometry, each of which the user saw and rejected. What CAN sit under a box and still
-  show its top is a box that is bigger toward the viewer. In this projection the depth axis runs
-  up-right by a fixed `SKEW`, so "deeper toward the viewer" means the plate's front edge moves
-  straight down while the back edge and both corners' x stay put: each tucked storey's plate is one
-  STRIP (`plate - overlap`) deeper than the one above, its back edge is exactly the underside of the
-  box above, and its back-right corner lands on the very point where the side face above ends. The
-  visible part of each lower plate is an L - the front strip plus a sliver up its right edge that
-  narrows to nothing at that shared corner. Every box is the same box: front and side faces are one
-  riser tall on every floor. `stepOf` counts tucked storeys down from the nearest free floor; the
-  selected floor stands free at its natural depth, so the step restarts under it.
-  - **Verified with a screenshot, not arithmetic.** The three previous seams were all "correct" on
-    paper. This one was checked by `screencapture -R` of the dev window (bounds from System Events,
-    by unix id) after a hot reload over the dev host's own MCP port, and the first screenshot found
-    a placement bug the arithmetic had hidden (below). The recipe lives in `$CLAUDE_JOB_DIR/tmp`
-    scripts during a session; the durable notes are in the project memory.
-  - **`wrapContentHeight(Top, unbounded = true)`, never `requiredHeight`, for a slab taller than its
-    band.** Both let the child exceed the parent, but `requiredHeight` reports the coerced size and
-    then CENTRES the overflow - the child is silently moved up by half the excess - so every offset
-    applied on top of it was wrong by that half, and every seam drawn since the overlap went in was
-    out by up to a riser. A debug line at the clip height, drawn and screenshotted, is what showed
-    it sitting one riser too high.
-  - **A lower plate is clipped to what the storey above leaves showing**, which is now exactly the
-    L: below the face above across the plate's width, then along the side face's bottom edge to the
-    shared corner at the far right. The side and front faces are drawn unclipped; nothing they cover
-    was drawn in the first place, so there is no z-order to get right and the list stays in reading
-    order.
-  - **Known, unverified: the selected floor when it is NOT the top one.** It stands free at its
-    natural depth, so the storey above it has a riser-tall side face and the free floor's plate
-    begins a whole plate-depth lower at the far right - a visible gap above it on both sides, which
-    is what "lifted clear of the stack" looks like in this geometry. It could not be screenshotted
-    (switching workspace needs a click, and `osascript` has no assistive access); the reasoning is
-    written down here so the first person to see it knows what was intended.
-- **Hit-testing is per floor BAND, not per parallelogram.** Selection is per workspace, so the
-  fixed-height `Box` takes the click and the `Canvas` inside it only draws. Inverting the projection
-  on every press would buy a hit test nobody could tell apart from this one.
-- **`heightIn(max = ...)`, not `height(...)`.** For three or more workspaces the storeys are sized
-  to fill exactly `FLOORS_HEIGHT`, so the two agree; for one or two `MAX_SLAB` bites and the block
-  is shorter, and holding the full height empty there would take room the tree can use. Past the
-  clamps it scrolls. Capping the floor COUNT instead would have put a "+N more" in a panel where the
-  thing behind it cannot be clicked.
+  the same `WorkspaceTabStructure` the tree is drawing, in the same order, so a floor and its group
+  in the tree can never disagree about the shape of a workspace and always sit in the same position.
 - **Always on, and with no heading**, like the host's navigation map. There was a FLOORS heading
   with a chevron and a `FloorsViewState` behind it; both are gone. A heading over a picture of the
   window's workspaces labels something that is already showing what it is, and it cost a 24dp row
   to do it. `heightIn` means the block shrinks to fit a two-workspace window anyway, so there was
-  never much height for a toggle to hand back.
-- **The slab is SOLID: every face is an opaque BLEND, never a surface at an alpha.** A translucent
-  face lets the panel's ground through, which reads as a wash over the page rather than a block
-  sitting on it. Two bugs came out of getting that wrong, both visible: a non-current floor's SIDE
-  face was `BackgroundColor` - the panel's own ground - so the slab had a hole cut in its right side
-  instead of a shaded face; and the current floor's front face was the accent at a HIGHER alpha than
-  its plate, which is the page showing through less rather than a face catching more light. The
-  plate and the front are `lerp(darkSurface, accent, …)`, and the side is derived from the front by
-  `lerp(front, Color.Black, SIDE_FACE_SHADE)` - one material, one light, so the two faces cannot
-  drift apart again. Only the PANES are translucent, and they have an opaque plate under them to be
-  translucent against.
-- **The lit floor is accent FILL; its label is `TextPrimary`.** The name sits on the front face,
-  and for the current floor that face IS the accent - so the accent cannot also be the text. The
-  fill is already saying which floor this is. (`AccentColor` landing under 4.5:1 as text is written
-  down under Colours and has caught this plugin before.) The pane being worked in inside the lit
-  floor is filled harder still, off `activeTabsProvider.activePanelId` - which is null for every
-  workspace that is not on screen, so only the lit floor ever marks one.
-- **An empty pane is drawn as an outline with no fill.** A pane with no tabs in it is part of the
-  split and should be visible as one; filling it would claim there is something in it.
+  never much height for a toggle to hand back. There is no rule BELOW it either: a line under the
+  block read as ground it was standing on rather than as the top of the footer, so
+  `WorkspaceActionsFooter` draws none.
+- **Hit-testing is per floor, and the whole pitch takes the click.** Selection is per workspace, so
+  the `Box` takes the press and the `Canvas` inside it only draws.
+- **Every fill is an opaque BLEND, never a surface at an alpha.** A translucent floor lets the
+  panel's ground through and reads as a wash over the page rather than a bar drawn on it. The floor
+  is `lerp(darkSurface, accent, …)`; only the PANES are translucent, and they have an opaque floor
+  under them to be translucent against. The lit floor's name is `TextPrimary`, not the accent:
+  `AccentColor` is a fill token and lands under 4.5:1 as text, which is written down under Colours
+  and has caught this plugin before. The pane being worked in is filled harder still, off
+  `activeTabsProvider.activePanelId` - null for every workspace that is not on screen, so only the
+  lit floor ever marks one.
+- **An empty pane is drawn as an outline with no fill.** A pane with no tabs is part of the split
+  and should be visible as one; filling it would claim there is something in it.
+- **`FloorsViewState` is gone**, so nothing here is component-scoped state any more. Hover lives in
+  a `MutableInteractionSource` per floor, which is per composition and correct by construction.
+- **Verify it by LOOKING at it.** Four of the five rewrites were reasoned on paper and each was
+  wrong on screen; the first screenshot also found a placement bug the arithmetic had hidden
+  (`requiredHeight` centres an oversized child). Hot reload into the running dev host over its own
+  MCP port and `screencapture -R` the window - see the project memory for the recipe.
+
 
 ### One section per pane, named by the host
 
