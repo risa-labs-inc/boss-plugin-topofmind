@@ -37,6 +37,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
@@ -46,11 +47,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 // ---------------------------------------------------------------------------------------------
-// A floor is a flat rectangle seen head on. There is no projection: no skew, no plate, no faces.
-// The stack went through four goes at an isometric one and every one of them died on the same
-// impossible corner - a lower box's top showing under the box above it. A front elevation has no
-// such corner, is legible at half the height, and says the one thing the view is for: which
-// workspaces are running, how each is split, and which one you are in.
+// A floor is a shallow box, seen head on and a little from above: a front face carrying the name
+// and the panes, plus a thin top face and a thin right face receding back-and-up. The depth is
+// small on purpose - a bar with a hint of solidity, not a slab.
+//
+// The stack died five times as an isometric PLATE, with the panes on a top face seen from above.
+// That model cannot work at all: two identical boxes stacked with no air between them hide each
+// other's tops exactly, so every version that drew a lower workspace's plate was drawing a thing
+// that cannot exist, and that plate's back corner had nowhere coherent to go. This one keeps the
+// panes on the FRONT and fits each box's whole silhouette - front, top and side - inside its own
+// band, so the gap between two storeys is real air and no face ever reaches the floor above.
 // ---------------------------------------------------------------------------------------------
 
 /** Room at each side of the stack, matching the tree's own 10dp header inset. */
@@ -106,6 +112,22 @@ internal fun floorMetricsFor(count: Int): FloorMetrics {
     return FloorMetrics(height = ideal.coerceIn(MIN_FLOOR, MAX_FLOOR), gap = FLOOR_GAP)
 }
 
+/**
+ * How far back a floor's far face sits: across, and up.
+ *
+ * This is the depth axis of the projection. A point on the front face plus
+ * ([FLOOR_DEPTH_X], -[FLOOR_DEPTH_Y]) is the same point on the back of the box, so the whole
+ * building is drawn with one vector and vertical world edges stay vertical on screen. The ratio is
+ * about tan(30 degrees), the isometric one.
+ *
+ * The SIZE is what makes this view "slightly" isometric: the projection that was rejected five
+ * times skewed by 22dp. It is paid once for the whole stack rather than once per storey, and it
+ * comes off the drawable width, so with the sidebar dragged to its 120dp minimum the front face is
+ * still about 92dp wide - room for a workspace name and its tab count.
+ */
+private val FLOOR_DEPTH_X = 8.dp
+private val FLOOR_DEPTH_Y = 4.dp
+
 /** Room between a floor's edge and the name on it. */
 private val LABEL_INSET = 8.dp
 
@@ -123,6 +145,15 @@ private const val HOVER_PANE_ALPHA = 0.18f
 /** How far the current floor's ground is tinted toward the accent. A blend, not an alpha. */
 private const val CURRENT_FLOOR_ALPHA = 0.12f
 private const val PANE_EDGE_ALPHA = 0.7f
+
+// The two receding faces are SHADING of the front one, not colours of their own: each is a blend of
+// whatever ground that floor already has, so a lit floor is lit on all three faces and the accent
+// tint is stated once. The side goes darker and the top a little lighter, which is what makes three
+// flat quadrilaterals read as one solid. An early version painted the side in
+// `BossThemeColors.BackgroundColor` - a token with nothing to do with the floor - and it read as a
+// hole punched in the bar rather than a face of it.
+private const val SIDE_FACE_SHADE = 0.35f
+private const val TOP_FACE_SHADE = 0.10f
 
 /**
  * One pane's place on a floor plate, as FRACTIONS of the plate (0..1 in both axes).
@@ -247,13 +278,12 @@ internal object WorkspaceFloorPlan {
  * one on screen is the lit floor. Click a storey to switch to it.
  *
  * **Why the stack does not drift sideways as it rises.** The obvious hand-drawn version offsets
- * each floor a little further right than the one below, which is a cavalier oblique: the skew is
- * then paid once per storey, so eight workspaces at 22dp a floor would want 176dp of lateral room
- * before the first plate is drawn, in a sidebar that has ~180dp in total. In a true isometric the
- * vertical world axis maps to the vertical screen axis, so a building's corner columns are drawn
- * as vertical lines and congruent floor plates sit squarely above one another. That is the
- * projection used here: the skew is a flat 22dp for the whole building however many storeys it
- * has, and the plate never becomes a sliver.
+ * each floor a little further right than the one below, which is a cavalier oblique: the depth is
+ * then paid once per storey, so eight workspaces at 8dp a floor would want 64dp of lateral room
+ * before the first face is drawn, in a sidebar that has ~180dp in total and can be dragged to 100dp.
+ * Here the vertical world axis maps to the vertical screen axis, as it does in a true isometric, so
+ * a building's corner edges are vertical lines and every storey is the same box drawn in the same
+ * place. [FLOOR_DEPTH_X] is paid ONCE for the whole building however many storeys it has.
  *
  * The order is [TabTreeBuilder]'s, so a workspace's storey and its group in the tree are in the
  * same position and the first workspace in the tree is the top floor.
@@ -319,16 +349,25 @@ internal fun WorkspaceFloors(
 }
 
 /**
- * One floor: a flat bar, divided into the workspace's panes, with its name written across it.
+ * One floor: a shallow box, divided into the workspace's panes on its front face, with its name
+ * written across the same face.
  *
- * **Seen head on. There is no projection here and that is the point.** This was an isometric slab
- * for four rounds and every one of them foundered on the same corner - a lower box's top face
- * showing under the box above it, which two identical stacked boxes cannot do. It came back as a
- * wedge, then a flat crop, then a column, then a skirt, then a step. A front elevation has no such
- * corner: floors are rectangles, they stack, and the drawing is finished.
+ * **The panes stay on the FRONT, and that is what makes the depth safe.** This was an isometric
+ * PLATE for five rounds - the panes on a top face seen from above, with the extrusion hanging below
+ * it - and every round foundered on the same corner, because two identical boxes stacked with no
+ * air between them hide each other's tops exactly. Showing a lower workspace's plate was therefore
+ * drawing something that cannot exist, and its back corner had nowhere to go: it came back as a
+ * wedge, then a flat crop, then a column, then a skirt, then a step.
  *
- * What is left is what the view was ever for - which workspaces are running, how each one is split,
- * and which is on screen - at half the height and with none of the geometry.
+ * The box drawn here is free-standing. Its whole silhouette - front face, top face, side face - is
+ * laid out inside this floor's own band, so the depth is taken out of the band rather than added on
+ * top of it, and the [FloorMetrics.gap] between two bands stays air that nothing is drawn into. No
+ * floor can occlude another, so there is no impossible corner to resolve.
+ *
+ * The depth is deliberately small ([FLOOR_DEPTH_X] across, [FLOOR_DEPTH_Y] up, where the rejected
+ * version used 22dp). It should read as a bar with a little solidity, not as a slab, and the view
+ * still says the three things it is for: which workspaces are running, how each one is split, and
+ * which one is on screen.
  */
 @Composable
 private fun Floor(
@@ -348,6 +387,20 @@ private fun Floor(
     // through and reads as a wash over the page rather than a bar drawn on it. Only the PANES are
     // translucent, and they have an opaque floor under them to be translucent against.
     val ground = lerp(BossColors.darkSurface, accent, if (isCurrent) CURRENT_FLOOR_ALPHA else 0f)
+    // What the front face mostly READS as: the ground, plus whatever wash the panes lay over it.
+    // The two receding faces are shaded off THIS rather than off the bare ground, so a lit floor
+    // gets a lit box - off the ground alone its top face came out darker than its own front and the
+    // depth read as a shadow between two bars instead of as one solid.
+    val body =
+        when {
+            isCurrent -> lerp(ground, accent, CURRENT_PANE_ALPHA)
+            hovered -> lerp(ground, accent, HOVER_PANE_ALPHA)
+            else -> ground
+        }
+    // Black and white are the shading here, not palette choices: a floor's colour is stated once,
+    // in `ground`, and its faces follow it.
+    val topFace = lerp(body, Color.White, TOP_FACE_SHADE)
+    val sideFace = lerp(body, Color.Black, SIDE_FACE_SHADE)
     val outline = if (lit) accent else BossThemeColors.BorderColor
     val paneEdge = BossThemeColors.BorderColor.copy(alpha = PANE_EDGE_ALPHA)
     val paneFills =
@@ -385,18 +438,68 @@ private fun Floor(
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val stroke = 1.dp.toPx()
-                drawRect(ground)
+                val half = stroke / 2f
+                val depthX = FLOOR_DEPTH_X.toPx()
+                val depthY = FLOOR_DEPTH_Y.toPx()
 
-                // The panes, as fractions of the bar. `WorkspaceFloorPlan` already answers in a
-                // 0..1 box, so a front elevation needs no transform at all - the fractions ARE the
-                // rectangle. A left/right split draws as two columns and a top/bottom one as two
-                // rows, which is what those words mean.
+                // The whole box fits the band, inset half a stroke so the outline is not clipped
+                // at the edges. The depth comes OUT of the band: the front face gives up depthY at
+                // the top and depthX at the right, and what the box gains is a top face and a side
+                // face in that room. Nothing is drawn outside these bounds, which is why the air
+                // between two floors stays air.
+                val backTop = half
+                val backRight = size.width - half
+                val faceLeft = half
+                val faceTop = backTop + depthY
+                val faceRight = backRight - depthX
+                val faceBottom = size.height - half
+                val faceWidth = faceRight - faceLeft
+                val faceHeight = faceBottom - faceTop
+
+                // A list, not a vararg: `Offset` is a value class and Kotlin refuses to spread one.
+                fun face(corners: List<Offset>) =
+                    Path().apply {
+                        moveTo(corners.first().x, corners.first().y)
+                        corners.drop(1).forEach { lineTo(it.x, it.y) }
+                        close()
+                    }
+
+                // Every corner is a front-face corner plus the depth vector (depthX, -depthY), so
+                // the two receding faces are the same projection applied twice and cannot disagree.
+                val topFacePath =
+                    face(
+                        listOf(
+                            Offset(faceLeft, faceTop),
+                            Offset(faceRight, faceTop),
+                            Offset(backRight, backTop),
+                            Offset(faceLeft + depthX, backTop),
+                        ),
+                    )
+                val sideFacePath =
+                    face(
+                        listOf(
+                            Offset(faceRight, faceTop),
+                            Offset(backRight, backTop),
+                            Offset(backRight, faceBottom - depthY),
+                            Offset(faceRight, faceBottom),
+                        ),
+                    )
+                drawPath(path = topFacePath, color = topFace)
+                drawPath(path = sideFacePath, color = sideFace)
+                drawRect(ground, topLeft = Offset(faceLeft, faceTop), size = Size(faceWidth, faceHeight))
+
+                // The panes, as fractions of the FRONT face. `WorkspaceFloorPlan` already answers
+                // in a 0..1 box, so the fractions ARE the rectangle and nothing here is projected:
+                // a left/right split draws as two columns and a top/bottom one as two rows, which
+                // is what those words mean. Skewing them onto a receding face is exactly the plate
+                // that was rejected five times.
                 panes.forEachIndexed { index, pane ->
-                    val topLeft = Offset(pane.area.left * size.width, pane.area.top * size.height)
+                    val topLeft =
+                        Offset(faceLeft + pane.area.left * faceWidth, faceTop + pane.area.top * faceHeight)
                     val paneSize =
                         Size(
-                            (pane.area.right - pane.area.left) * size.width,
-                            (pane.area.bottom - pane.area.top) * size.height,
+                            (pane.area.right - pane.area.left) * faceWidth,
+                            (pane.area.bottom - pane.area.top) * faceHeight,
                         )
                     val fill = paneFills.getOrElse(index) { Color.Transparent }
                     if (fill != Color.Transparent) drawRect(fill, topLeft = topLeft, size = paneSize)
@@ -405,16 +508,28 @@ private fun Floor(
                     drawRect(paneEdge, topLeft = topLeft, size = paneSize, style = Stroke(width = stroke))
                 }
 
+                // The box's own edges last, over the panes. Stroking the two faces and the front
+                // rectangle draws every visible edge once each and the shared ones twice, which
+                // costs nothing and never leaves a corner open.
+                drawPath(path = topFacePath, color = outline, style = Stroke(width = stroke))
+                drawPath(path = sideFacePath, color = outline, style = Stroke(width = stroke))
                 drawRect(
                     color = outline,
-                    topLeft = Offset(stroke / 2f, stroke / 2f),
-                    size = Size(size.width - stroke, size.height - stroke),
+                    topLeft = Offset(faceLeft, faceTop),
+                    size = Size(faceWidth, faceHeight),
                     style = Stroke(width = stroke),
                 )
             }
 
             Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = LABEL_INSET),
+                // The name lives on the FRONT face, unskewed, so the padding gives back exactly the
+                // room the top and side faces took. Text sliding onto a receding face would be text
+                // on a wall that is not facing the reader.
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(top = FLOOR_DEPTH_Y, end = FLOOR_DEPTH_X)
+                        .padding(horizontal = LABEL_INSET),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(LABEL_GAP),
             ) {
