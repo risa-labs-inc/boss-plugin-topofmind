@@ -353,15 +353,18 @@ through the same `switchToWorkspace` the workspace headers use.
     plate but the top one - a flat crop across the right of each slab, with nothing above it to
     justify the cut. The path follows that underside: `overlap` down at the front, a whole
     plate-depth higher at the far right.
-  - **Every storey but the top draws a COLUMN over its own plate corner.** Showing any of a lower
-    plate is non-physical - identical boxes stacked with no gap hide each other's top faces exactly -
-    and the symptom was that plate's back-right corner poking out to the right of the face above,
-    under the side face's slanted bottom edge, where nothing covers it. So a storey with another one
-    above it runs its side face UP to meet the one above on a shared edge, and draws it AFTER its
-    plate: the plate keeps its whole front strip and its right end is the column's vertical edge.
-    Only the TOP floor keeps the slanted plate corner, because there it is the real top of the
-    column. The column's top edge is not stroked - it already carries the storey above's outline,
-    which may be the accent.
+  - **Every storey's side face runs DOWN to the plate edge of the storey below.** Showing any of a
+    lower plate is non-physical - identical boxes stacked with no gap hide each other's top faces
+    exactly - and the symptom was that plate's back-right corner poking out to the right of the face
+    above, under the side face's slanted bottom edge, where nothing covers it. So a storey's side
+    face is `pitch` deep when the one below is tucked, a whole slab when it stands free, and just
+    the riser for the bottom floor: it reaches the next plate's right edge, the storey below hangs
+    its own side face from that same edge, and the right of the building is one wall with a slanted
+    seam at every plate edge. A lower plate is clipped to a RECTANGLE - below the face above, left
+    of the wall above - so it never draws the corner the wall covers. This replaced a version where
+    the LOWER storey ran its side face UP as a column with vertical edges; that made every floor but
+    the top read as a tray under a box, because the lower plate's slanted edge - the one line that
+    says "slab" - was hidden and a vertical edge stood where it should be.
   - The first attempt did overflow downward, which meant the UPPER floor had to paint last, which a
     `LazyColumn` will not do (it paints in index order) - so it used `reverseLayout = true` with the
     items fed bottom-first. That worked and cost the list its top anchor: with more floors than fit,
