@@ -216,8 +216,11 @@ private fun TabTree(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .height(SEARCH_HEIGHT)
-                        .padding(horizontal = PANEL_PADDING),
+                        // Padding BEFORE height, not after. The other order applies the inset
+                        // inside the 28dp, squashing the field to 20dp instead of sitting it
+                        // 8dp down from the top of the panel.
+                        .padding(start = PANEL_PADDING, end = PANEL_PADDING, top = PANEL_PADDING)
+                        .height(SEARCH_HEIGHT),
             )
             Spacer(modifier = Modifier.height(6.dp))
 
