@@ -1,6 +1,7 @@
 package ai.rever.boss.plugin.dynamic.topofmind
 
 import ai.rever.boss.plugin.api.ActiveTabData
+import ai.rever.boss.plugin.api.WorkspaceDataProvider
 
 /**
  * Utility to build tree structure from active tabs
@@ -8,13 +9,36 @@ import ai.rever.boss.plugin.api.ActiveTabData
 object TabTreeBuilder {
 
     /**
-     * A fixed place in the list for every workspace.
+     * A workspace with no saved record of when it was last written sorts to the bottom.
      *
-     * Name first, case-insensitively, with the workspace id as a tie-break so two workspaces
-     * sharing a name never swap places between one rebuild and the next.
+     * Which is where it belongs under this ordering: a workspace running in the window but absent
+     * from `workspaces` is one nothing has saved yet, so it is newer than everything that has been.
      */
-    private val workspaceOrder: Comparator<TabTreeNode.WorkspaceNode> =
-        compareBy({ it.name.lowercase() }, { it.workspaceId })
+    private const val UNSAVED = Long.MAX_VALUE
+
+    /**
+     * Oldest first, so the newest workspace is the bottom row.
+     *
+     * `LayoutWorkspace.timestamp` is when the workspace was last written, which is the only clock
+     * the api offers - `ActiveTabData` carries no time at all and the ids are names
+     * (`workspace-claude-code`), not the `workspace-<epoch millis>` that `generateId` produces, so
+     * neither can answer this. The consequence worth knowing: saving a workspace moves it down.
+     *
+     * The name is the tie-break, and the id after it, because two workspaces written in the same
+     * millisecond must not swap places between one rebuild and the next.
+     *
+     * NOT arrival order, which is the obvious thing and is wrong: the host emits the CURRENT
+     * workspace's tabs first and the preserved ones after, so grouping in arrival order made
+     * whichever workspace you switched to jump to the top of the panel - rows moving out from under
+     * the cursor. Which workspace is current is said with the accent stripe in WorkspaceHeader,
+     * not with position.
+     */
+    private fun workspaceOrder(addedAt: Map<String, Long>): Comparator<TabTreeNode.WorkspaceNode> =
+        compareBy(
+            { addedAt[it.workspaceId] ?: UNSAVED },
+            { it.name.lowercase() },
+            { it.workspaceId },
+        )
 
     /**
      * One section per PANE, named exactly the way the window's own vertical tab bar names it.
@@ -62,10 +86,22 @@ object TabTreeBuilder {
     /**
      * The panel's whole tree: one node per workspace, each holding one section per pane.
      *
-     * Takes nothing but the tabs. It used to take a [ai.rever.boss.plugin.api.WorkspaceDataProvider]
-     * as well, to read each workspace's saved layout - see [buildTabStructure] for why that is gone.
+     * [workspaceDataProvider] is read for ONE thing, each workspace's `timestamp` - see
+     * [workspaceOrder]. It used to be read for each workspace's saved layout as well, which is
+     * what [buildTabStructure] records getting rid of. A null provider costs the ordering and
+     * nothing else: every workspace then sorts as unsaved and the tie-break carries the list.
      */
-    fun buildTree(activeTabs: List<ActiveTabData>): List<TabTreeNode> {
+    fun buildTree(
+        activeTabs: List<ActiveTabData>,
+        workspaceDataProvider: WorkspaceDataProvider? = null
+    ): List<TabTreeNode> {
+        val addedAt =
+            workspaceDataProvider
+                ?.workspaces
+                ?.value
+                .orEmpty()
+                .associate { it.id to it.timestamp }
+
         val rootNodes =
             activeTabs.groupBy { it.workspaceId }.map { (workspaceId, tabs) ->
                 TabTreeNode.WorkspaceNode(
@@ -78,12 +114,7 @@ object TabTreeBuilder {
                 )
             }
 
-        // Sorted, NOT left in the order the tabs arrived in. The host emits the CURRENT
-        // workspace's tabs first and the preserved ones after, so grouping in arrival order made
-        // whichever workspace you switched to jump to the top of the panel - rows moving out from
-        // under the cursor. Which workspace is current is said with the accent stripe in
-        // WorkspaceHeader, not with position.
-        return rootNodes.sortedWith(workspaceOrder)
+        return rootNodes.sortedWith(workspaceOrder(addedAt))
     }
 
     /**

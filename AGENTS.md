@@ -14,9 +14,17 @@ Every open tab across every running workspace, as a tree, with a tab movable bet
 
 ```bash
 ./gradlew buildPluginJar    # Build plugin JAR (output: build/libs/)
-./gradlew build              # Full build
-./gradlew processResources   # Process resources (syncs version)
+./gradlew test              # Unit tests - pane naming, workspace order, floor plan
+./gradlew build             # Full build (runs the tests)
+./gradlew processResources  # Process resources (syncs version)
 ```
+
+`PaneStructureTest` pins what can be checked without a screen: that a section is named by whatever
+`ActiveTabData.splitPosition` says, that sections are flat and in the host's order, that workspaces
+are ordered oldest-saved first, and that the floor plan takes a pane's name literally only when the
+names actually tile the plate. The api is `compileOnly` for the plugin, so the tests take it onto
+their own runtime classpath through the same conditional - the local sibling jar, or CI's
+downloaded one.
 
 ## Workflow Rules
 
@@ -38,7 +46,7 @@ a move is a *move of a running thing* rather than a close and reopen.
 
 ```
 TopofmindDynamicPlugin  registers the panel + the tabs_* MCP tools
-TopofmindComponent      owns TabTreeState, TabDragState, SplitPaneExpansion and FloorsViewState
+TopofmindComponent      owns TabTreeState, TabDragState, SplitPaneExpansion and PanelDialogState
 TopOfMindPanel          the panel: the tree, workspace switching, the move, and the dialogs
 WorkspaceFloors         the workspaces as isometric storeys, between the tree and the footer
 WorkspaceFooter         the workspace actions + the search button, pinned under the tree
@@ -50,7 +58,8 @@ TabTransfer             which workspaces a tab can move to, and the move itself
 TabDragState            drag in flight, drop-target bounds, the post-move highlight
 TabTreeState            which WORKSPACE groups are open, and the user's overrides of the default
 SplitPaneExpansion      which split pane is showing all its tabs: sticky hover, plus pins
-TabTreeBuilder          activeTabs + workspace layouts -> the tree, in a fixed order
+TabTreeBuilder          activeTabs -> the tree: one section per pane, oldest workspace first
+PanePlacement           a pane's NAME -> where it sits, for the header glyph and the floors
 TabTreeType             tree node types
 ```
 
@@ -87,8 +96,14 @@ TabTreeType             tree node types
 - **`activeTabs` arrives current-workspace-first.** The host's `collectAllActiveTabs` emits the
   current workspace's tabs and then the preserved ones, so a plain `groupBy { it.workspaceId }`
   ordered the groups by arrival and every workspace jumped to the top of the panel the moment you
-  switched to it. `TabTreeBuilder.workspaceOrder` sorts by name (case-insensitively, id as
-  tie-break) so a row's position never depends on which workspace is current.
+  switched to it. `TabTreeBuilder.workspaceOrder` sorts by `LayoutWorkspace.timestamp`, oldest
+  first, so the newest workspace is the bottom row and a row's position never depends on which
+  workspace is current. That timestamp is when the workspace was last WRITTEN - the only clock the
+  api offers, since `ActiveTabData` carries no time and the ids are names (`workspace-claude-code`)
+  rather than the `workspace-<epoch millis>` `generateId` produces - so saving a workspace moves it
+  down. A workspace absent from `workspaces` has never been saved, which makes it the newest thing
+  there is, and it sorts to the bottom. Name then id break ties, so two workspaces written in the
+  same millisecond never swap places between rebuilds.
 - **Default expansion depends on the current workspace, so it needs overrides.** Only the workspace
   on screen is open by default. Because that default is not a constant, `TabTreeState` records the
   user's toggles in a `Map<String, Boolean>` rather than a set of exceptions: a set cannot tell "the
@@ -256,12 +271,15 @@ through the same `switchToWorkspace` the workspace headers use.
   squarely above one another. That is what is drawn here, and it is why the skew is a flat 22dp for
   the whole building however many storeys it has.
 - **The numbers, so the next change can be judged against them.** 10dp of inset each side, `SKEW`
-  22dp, plate 18dp deep with a 4dp riser and a 5dp gap, so a band is 27dp. At the sidebar's usual
-  200dp that leaves a 158dp plate: a two-pane split draws two 79dp blocks, a four-way split four
-  39dp blocks. Dragged down to 120dp - which the footer's own `FlowRow` note says is reachable -
-  the plate is 78dp and a four-way split still draws four 19dp blocks. The shallow-perspective
-  fallback (flat rectangles, each slightly narrower as it recedes) was not needed: nothing here
-  becomes a sliver, because the projection's cost is a constant rather than a per-floor one.
+  22dp, plate 24dp deep with an 8dp riser and a 5dp gap, so a band is 37dp and four are on screen.
+  The riser was 4dp and the plate 18dp, which made a storey read as a card with a line under it
+  rather than as a slab; the visible count came down from five with the thickness, so the block
+  still takes roughly the 135dp of sidebar it always did. At the sidebar's usual 200dp the plate is
+  158dp wide: a two-pane split draws two 79dp blocks, a four-way split four 39dp blocks. Dragged
+  down to 120dp - which the footer's own `FlowRow` note says is reachable - the plate is 78dp and a
+  four-way split still draws four 19dp blocks. The shallow-perspective fallback (flat rectangles,
+  each slightly narrower as it recedes) was not needed: nothing here becomes a sliver, because the
+  projection's cost is a constant rather than a per-floor one.
 - **The label goes ON the plate, not beside it.** A name in its own column to the right wants about
   60dp permanently, which at 120dp would leave the plate under 40dp - four panes of 10dp, the exact
   illegible outcome the view exists to avoid. On the plate the name costs nothing horizontally, and
@@ -269,28 +287,34 @@ through the same `switchToWorkspace` the workspace headers use.
   ends, because at the plate's vertical middle its left edge has travelled half the skew inwards
   and its right edge is half the skew short of the drawing area.
 - **Structurally true, schematically proportioned - the same caveat as `SplitPositionGlyph`.**
-  `WorkspaceFloorPlan.panesOf` divides each level into EQUAL parts, so a divider dragged to 20/80
-  draws as halves. `SplitConfig` carries no ratio, and a workspace that is not on screen was never
-  measured, so not even the host has bounds for it - the host's `SplitMap` can be honest about
-  proportion only because it is handed the panes' measured rectangles. No ratio is invented from
-  tab counts or anything else. If the api ever exposes measured pane rects, this and
-  `SplitPositionGlyph` are the two functions that should start using them.
+  A pane's place on the plate comes from `paneAreaFor`, so a divider dragged to 20/80 draws as
+  halves: the name says which edges the pane touches and nothing about where the divider is. No
+  ratio is invented from tab counts or anything else. If the api ever exposes measured pane rects,
+  this and `SplitPositionGlyph` are the two functions that should start using them.
+- **The exact placement is taken only when the names actually tile the plate.** "Left" plus
+  "Top right" plus "Bottom right" describes an arrangement completely and is drawn as it is.
+  "Left" plus "Pane 2" plus "Right" is the three-column split - the host numbers the middle pane
+  because no honest name fits - and taking the two names at face value would draw the third pane on
+  top of the other two, so that falls back to equal slices. `tiles` tests coverage as well as
+  overlap: overlap alone would accept "Left" and "Top" and leave half the plate blank. The fallback
+  still reads the AXIS from the names, because a pane called "Top" or "Bottom" runs the full width
+  and slicing into columns would draw a three-row split lying on its side.
 - **It reads `TabTreeBuilder`'s output, not `SplitConfig` a second time.** The floors are built from
-  the same `WorkspaceTabStructure` the tree is drawing, in the same `workspaceOrder`, so a storey
-  and its group in the tree can never disagree about the shape of a workspace and always sit in the
-  same position. That includes the flat fallback the builder uses when the layout's panel count
-  does not match the running one: it lands here as a single undivided plate.
+  the same `WorkspaceTabStructure` the tree is drawing, in the same order, so a storey and its group
+  in the tree can never disagree about the shape of a workspace and always sit in the same
+  position.
 - **Hit-testing is per floor BAND, not per parallelogram.** Selection is per workspace, so the
   fixed-height `Box` takes the click and the `Canvas` inside it only draws. Inverting the projection
   on every press would buy a hit test nobody could tell apart from this one.
-- **`heightIn(max = ...)`, not `height(...)`.** Five storeys are on screen and the rest scroll. A
+- **`heightIn(max = ...)`, not `height(...)`.** Four storeys are on screen and the rest scroll. A
   window running three workspaces gives the room it does not need back to the tree, where a fixed
   height would hold it empty; capping the floor COUNT instead would have put a "+N more" in a panel
   where the thing behind it cannot be clicked.
-- **`FloorsViewState` is a field on `TopofmindComponent`, never a top-level object** - the rule
-  `TabTreeState`, `TabDragState`, `SplitPaneExpansion` and `PanelDialogState` are all there for.
-  Collapsing the stack in one window must not collapse it in another. The toggle exists at all
-  because the block is fixed-height chrome in a sidebar that also has to hold the tree.
+- **Always on, and with no heading**, like the host's navigation map. There was a FLOORS heading
+  with a chevron and a `FloorsViewState` behind it; both are gone. A heading over a picture of the
+  window's workspaces labels something that is already showing what it is, and it cost a 24dp row
+  to do it. `heightIn` means the block shrinks to fit a two-workspace window anyway, so there was
+  never much height for a toggle to hand back.
 - **The lit floor is accent FILL; its label is `BossColors.accentText`.** `AccentColor` is the fill
   token and lands under 4.5:1 as text, which is written down under Colours and has caught this
   plugin before. The pane being worked in inside the lit floor is filled harder still, off
@@ -298,6 +322,38 @@ through the same `switchToWorkspace` the workspace headers use.
   only the lit floor ever marks one.
 - **An empty pane is drawn as an outline with no fill.** A pane with no tabs in it is part of the
   split and should be visible as one; filling it would claim there is something in it.
+
+### One section per pane, named by the host
+
+`TabTreeBuilder.buildTabStructure` groups tabs by `panelId` and names each group from
+`ActiveTabData.splitPosition`, which the host derives with the SAME function its vertical tab bar
+uses for its own group headers (`paneLabel` over `paneGlyphFor`, on the panes' measured rectangles).
+So the panel and the bar an inch to its left agree by construction.
+
+It used to rebuild the split TREE from the workspace's saved `SplitConfig` instead, and disagreed
+with the bar three ways at once:
+
+- **Shape.** A nested pane arrived as "RIGHT > TOP" at two levels of indent where the bar called the
+  same pane "Top right" in a flat list.
+- **Freshness.** `SplitConfig` is the SAVED layout, so splitting a pane without saving made its
+  panel count disagree with the running one and the whole workspace fell back to a single undivided
+  list - the panes vanished from the panel while the bar still drew them.
+- **Identity.** Layout panel ids were mapped to runtime ones by position in a depth-first walk, so
+  any mismatch filed one pane's tabs under another pane's heading.
+
+Three things to know:
+
+- **A host too old to populate `splitPosition` needs no gate.** The field has always been on
+  `ActiveTabData`; an old host leaves it null and a pane falls back to "Pane N", which is the same
+  word the bar uses for a pane no honest name fits. Fewer names, never a wrong one.
+- **One pane means no section.** A heading over every tab in the workspace would claim a divider
+  that is not there. The bar's rule too.
+- **Order is the host's.** Tabs arrive pane by pane in layout order and `groupBy` keeps
+  first-encounter order, so a section's place in the panel is its pane's place in the window.
+
+`paneAreaFor` in `PanePlacement.kt` maps a pane's name back to the rectangle it was named for, and
+is the ONE definition of that: the section header's position glyph and the floors stack both read
+it, so a header and a storey cannot put one pane on two different sides.
 
 ### The headers
 
@@ -309,12 +365,13 @@ glyph tinted `textSecondary`, lifting to `textPrimary` on hover.
 
 - **The split glyph is a position marker, not a measured diagram.** The host's 16x12dp
   `SplitPositionGlyph` is honest because it is drawn from the panes' real rectangles, so it follows
-  a divider as it is dragged. This panel has no measured rectangles at all: its structure comes
-  from the workspace's saved `SplitConfig`, which is `SinglePanel` / `VerticalSplit(left, right)` /
-  `HorizontalSplit(top, bottom)` and **carries no ratio**. So the fill here is a schematic half: it
-  says WHICH side a pane is on - which is what "Left" already claims - and nothing about how the
-  split is actually divided. Read it that way, and if the api ever hands a plugin the measured pane
-  rects, this is the function that should start using them.
+  a divider as it is dragged. This panel has only the NAME the host derived from those rectangles,
+  and a name says which edges a pane touches and nothing about where the divider sits. So the fill
+  here is a schematic half: it says WHICH side a pane is on - which is what "Left" already claims -
+  and nothing about how the split is actually divided. It draws the four corners as well as the
+  four edges, and nothing at all for "Pane 3", because the host numbers a pane precisely when no
+  honest name fits. If the api ever hands a plugin the measured pane rects, `paneAreaFor` is what
+  should stop being consulted.
 - **There is no chevron on a section header.** The glyph leads the row where the host puts its own,
   and it brightens when the pane is open, which is the state a chevron would have carried. The
   collapsed pane's summary row keeps a real chevron, because that row has nothing else to say
@@ -365,8 +422,9 @@ so a four-way split costs a few rows rather than twenty.
   That is the consistent reading, and those workspaces are the long tail this collapse exists for.
 - **Only leaf sections collapse.** `TabTreeBuilder.paneIdOf` returns the pane a section stands for,
   and null for a section whose children are further sections: a container for a nested split has no
-  tab of its own to collapse TO. Its header therefore carries no toggle and no hover choice, rather
-  than a click that does nothing.
+  tab of its own to collapse TO. Since the builder went flat there are no containers left, so this
+  answers for every section it is given - it is kept because the renderer is written against the
+  sealed type rather than against that promise.
 - **A search expands everything.** The tree is already filtered to what matched, so collapsing
   would hide the very rows that were searched for. `allowCollapse = searchQuery.isBlank()`.
 - **The row a collapsed pane keeps is an ordinary `TabRow`**, emitted by recursing into
