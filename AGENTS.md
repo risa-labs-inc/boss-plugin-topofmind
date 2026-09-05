@@ -39,9 +39,10 @@ a move is a *move of a running thing* rather than a close and reopen.
 ```
 TopofmindDynamicPlugin  registers the panel + the tabs_* MCP tools
 TopofmindComponent      owns TabTreeState, TabDragState and SplitPaneExpansion, one set per panel
-TopOfMindPanel          the panel: search, the tree, workspace switching, the move
-WorkspaceFooter         the workspace actions pinned under the tree
-WorkspacePicker         the picker dialog's open/closed state, and which panel a request lands on
+TopOfMindPanel          the panel: the tree, workspace switching, the move, and the dialogs
+WorkspaceFooter         the workspace actions + the search button, pinned under the tree
+QuickSwitcher           the switcher over EVERY window's tabs: search, arrows, Enter
+PanelDialogs            which dialog a panel is showing, and which panel a request lands on
 TabRow                  one tab: 32dp flush row, drag source, context menu
 SectionHeaders          workspace group header (also the drop target) + split section header
 TabTransfer             which workspaces a tab can move to, and the move itself
@@ -101,41 +102,112 @@ TabTreeType             tree node types
   is a private class, so `getMethod(...).invoke(...)` finds the method and then throws
   `IllegalAccessException`. Call the interface member directly.
 
-### The host's workspace button opens the picker
+### The host raises this panel's dialogs
 
-The host's `WorkspaceButton`, at the foot of its vertical tab bar, gives its LEFT click to this
-panel: it dispatches `open-workspace-picker` at this plugin's `DeepLinkActionHandler` and opens the
-panel. Its own menu is not gone, it has moved to the button's right click, because the menu's
+Two host controls dispatch straight into this plugin's `DeepLinkActionHandler` and then open the
+panel, rather than doing the job themselves:
+
+| Host control | Action | Dialog |
+|---|---|---|
+| `WorkspaceButton`, LEFT click | `open-workspace-picker` | the footer's workspace picker |
+| Ctrl+Space (`QUICK_SWITCHER_OPEN`) | `open-quick-switcher` | the quick switcher |
+
+The workspace button's own menu is not gone, it has moved to its right click, because the menu's
 Options submenu is the only route in the app to Open Workspace Folder and Reset to Default.
+Ctrl+Space has no fallback: the host **deleted** its own `TopOfMindDialog`, and when nothing
+answers it says why and offers to install or enable this plugin.
 
-- **The handler raises the footer's dialog, not a second copy.** That dialog's visibility used to be
-  a `remember` inside `WorkspaceActionsFooter`, which is the right place while the button beside it
+- **`PANEL_DIALOG_ACTIONS` is a map, not a branch.** The handler's contract is "true for an action
+  of mine, false for anything else", and a lookup cannot drift from it. Adding a third dialog is a
+  line in that map plus a member on `PanelDialog`.
+- **Returning false for an action this build does not know is load-bearing now.** It is how a
+  newer host tells an OLD plugin apart from a missing one - it offers an update rather than an
+  install. Before the switcher moved, false only meant "not here", which is what makes the host's
+  workspace button fall back to its own menu.
+- **The handler raises the panel's own dialog, not a second copy.** That visibility used to be a
+  `remember` inside `WorkspaceActionsFooter`, which is the right place while the button beside it
   is the only thing that can open it. A caller outside the composition needs somewhere it can write,
-  so it is a `WorkspacePickerState` on `TopofmindComponent` now - panel-scoped like `TabTreeState`
+  so it is a `PanelDialogState` on `TopofmindComponent` now - panel-scoped like `TabTreeState`
   and `TabDragState`, and **never a top-level object**: two windows must not share one dialog.
-- **`WorkspacePickerRequests` decides WHICH panel opens it.** A deep-link action carries no window
-  and the panel factory is handed no window id, so the target has to be inferred: the panel most
-  recently composed. Panels attach in a `DisposableEffect` inside `Content()`, so the list holds the
-  ones actually on screen rather than every component the host is keeping alive.
+- **ONE slot, not a flag per dialog.** Both dialogs are modal, so "both open" is not a state this
+  panel can be in; two booleans could express it and would eventually be asked to.
+- **`PanelDialogRequests` decides WHICH panel opens it, and carries WHICH dialog.** A deep-link
+  action carries no window and the panel factory is handed no window id, so the target has to be
+  inferred: the panel most recently composed. Panels attach in a `DisposableEffect` inside
+  `Content()`, so the list holds the ones actually on screen rather than every component the host is
+  keeping alive. A parallel copy per dialog would have needed its own pending window, its own
+  attach/detach bookkeeping and its own idea of the front panel, and the two would have disagreed
+  the first time a panel closed between an attach and a request.
 - **A request that arrives before the panel is composed is held for a few seconds.** The host opens
   the panel and asks in the same click, and opening a panel is an event that lands a frame or more
   later - dropping the request because nothing was mounted yet would make the first click on a
   closed panel do half the job.
-- **The handler returns true for its own action and false for anything else**, which is what the
-  host's registry logs on. The host reads that as "Top of Mind is here"; false is what makes its
-  button fall back to its old menu when the plugin is not installed or is disabled.
 - **No manual unregister.** `TrackingPluginContext` records a deep-link handler as a UI extension
   and removes it when the plugin unloads, exactly as it does the MCP tools.
+
+### The quick switcher
+
+`QuickSwitcher.kt` is the host's old `TopOfMindDialog` (384 lines, `components/dialogs/`), moved
+here so there is ONE switcher rather than two. The host's copy is deleted.
+
+- **It reads `allWindowTabs`, not `activeTabs`.** That api member exists for this: `activeTabs` is
+  this window's tabs alone, which is right for the tree and wrong for a switcher, because the tab
+  you are reaching for may be in the window behind this one. `refreshAllWindowTabs()` is called when
+  the dialog opens and once a second while it is up - cross-window state is collected on demand
+  rather than pushed, so showing whatever the last window to publish left behind would be showing a
+  stale list at the one moment it matters. Both members are gated on `minBossVersion`, not
+  `minApiVersion`: `ActiveTabsProvider` is `@HostImplemented` and served parent-first.
+- **The api default degrades, it does not empty.** `allWindowTabs` defaults to `activeTabs`, so a
+  host that cannot see other windows shows this window's tabs rather than none.
+- **Rows are grouped by (window, workspace), not by workspace.** The same workspace can be running
+  in two windows, and merging them would put a tab you cannot reach under a heading that says it is
+  here. This window's groups come first; within a block, workspace name order, for the reason
+  `TabTreeBuilder.workspaceOrder` records.
+- **Two indices per row, and deriving one from the other is the bug.** `matchIndex` is the position
+  among TABS, which is what the arrows move through - headers are not stops. `rowIndex` is the
+  position in the flat list, which is what `animateScrollToItem` takes. They differ by the number of
+  headers above.
+- **`onPreviewKeyEvent`, not `onKeyEvent`.** The search field has focus, so Up/Down would move a
+  caret and Escape would do nothing if the dialog did not take them first.
+- **Known: selecting a tab in another WINDOW does not focus it.** `selectTab` resolves against the
+  split-view state of the window whose provider this is. Cross-*workspace* works (the host's
+  `selectTabAnywhere` plus its workspace switch); cross-window needs a window-aware verb on the api,
+  and listing those tabs is still worth it because it answers "where is that tab".
+
+### Search left the top of the panel
+
+There is no `BossSearchBar` above the tree any more, and the tree has **no filter at all** -
+`TabTreeBuilder.filterTreeNodes`, `filterTabStructure`, the `allowCollapse` parameter threaded
+through `workspaceGroup` and `TabStructure`, and the never-constructed `TabTreeNode.TabNode` all
+went with it rather than being left as dead branches.
+
+The reasoning: the field cost 28dp of a narrow sidebar permanently, to filter a tree that is already
+grouped by workspace and collapsible per pane, and the search actually worth having is the switcher's
+- it spans every window, where the tree is this window's by design. Two search boxes over overlapping
+sets of tabs, one of which cannot see half of them, is worse than one.
+
+`allowCollapse` existed only because a search must not collapse the rows it just matched. With no
+search there is no such case, so the collapse rule is unconditional and the parameter is gone rather
+than being passed `true` from one call site.
 
 ### The workspace footer
 
 `WorkspaceFooter.kt` mirrors the menu the host hangs off `WorkspaceButton` at the foot of its
-vertical tab bar. Four 32dp icon buttons under a full-width rule: open a workspace, save one, open
-one from a file, delete one.
+vertical tab bar. Four 32dp icon buttons under a full-width rule - open a workspace, save one, open one from a file,
+delete one - and then, rightmost, a search button that raises the quick switcher.
 
 - **It is a sibling of the LazyColumn, not an item in it.** The list takes `weight(1f)` and the
   footer sits under it, so the actions stay put while the tree scrolls. The empty state takes a
   weight for the same reason - `fillMaxSize()` there pushed the footer off the bottom.
+- **The search button is always drawn, the workspace buttons are not.** The four workspace actions
+  moved into a private `WorkspaceActions`, emitted straight into the footer's `FlowRow`, so its
+  null-provider early returns refuse those buttons without refusing the row, the rule and the search
+  button beside them. Search needs no provider the footer can be missing.
+- **The switcher is raised by `TopOfMindContent`, not by the button that opens it** - unlike the
+  workspace picker, which the button hosts as its `overlay`. The switcher needs `ActiveTabsProvider`
+  (non-null only inside the tree) and the footer draws nothing at all without a
+  `workspaceDataProvider`, so hosting it here would take the deep-link action's only landing place
+  away on a host that serves tabs and no workspaces.
 - **A FlowRow, not a Row.** The host's `HostActionsFlowRow` KDoc has the measurement: at 120dp a Row
   gives its LAST child zero width rather than clipping it, so the last button silently disappears at
   a width the user can reach by dragging.

@@ -10,7 +10,6 @@ import ai.rever.boss.plugin.api.WorkspaceDataProvider
 import ai.rever.boss.plugin.scrollbar.getPanelScrollbarConfig
 import ai.rever.boss.plugin.scrollbar.lazyListScrollbar
 import ai.rever.boss.plugin.ui.BossEmptyState
-import ai.rever.boss.plugin.ui.BossSearchBar
 import ai.rever.boss.plugin.ui.BossTheme
 import ai.rever.boss.plugin.ui.BossThemeColors
 import androidx.compose.foundation.gestures.Orientation
@@ -29,7 +28,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.Surface
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Tab
 import androidx.compose.material.icons.outlined.Workspaces
 import androidx.compose.runtime.Composable
@@ -52,9 +50,6 @@ import kotlinx.coroutines.launch
 /** How long a just-moved row stays highlighted in its new group. */
 private const val MOVED_FLASH_MS = 1_400L
 
-private val PANEL_PADDING = 8.dp
-private val SEARCH_HEIGHT = 28.dp
-
 /** Depth indent for tabs and nested split sections, matching the tab bar's group nesting. */
 private const val INDENT_STEP = 12
 
@@ -70,7 +65,8 @@ fun TopOfMindContent(
     treeState: TabTreeState,
     dragState: TabDragState,
     paneExpansion: SplitPaneExpansion,
-    picker: WorkspacePickerState,
+    panelDialogs: PanelDialogState,
+    windowId: String?,
     scope: CoroutineScope,
 ) {
     BossTheme {
@@ -95,7 +91,8 @@ fun TopOfMindContent(
                 treeState = treeState,
                 dragState = dragState,
                 paneExpansion = paneExpansion,
-                picker = picker,
+                panelDialogs = panelDialogs,
+                windowId = windowId,
                 scope = scope,
             )
         }
@@ -114,7 +111,8 @@ private fun TabTree(
     treeState: TabTreeState,
     dragState: TabDragState,
     paneExpansion: SplitPaneExpansion,
-    picker: WorkspacePickerState,
+    panelDialogs: PanelDialogState,
+    windowId: String?,
     scope: CoroutineScope,
 ) {
     val activeTabs by activeTabsProvider.activeTabs.collectAsState()
@@ -124,7 +122,6 @@ private fun TabTree(
     // live here was a second timer asking the same question twice as often.
     LaunchedEffect(activeTabsProvider) { activeTabsProvider.refreshTabs() }
 
-    var searchQuery by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val currentWorkspaceId = workspaceDataProvider?.currentWorkspace?.collectAsState()?.value?.id
     val transferSupported = remember(activeTabsProvider) { TabTransfer.isSupported(activeTabsProvider) }
@@ -142,11 +139,6 @@ private fun TabTree(
     // compares by value, so this restarts only when the panes themselves change.
     val livePanelIds = remember(activeTabs) { activeTabs.map { it.panelId }.toSet() }
     LaunchedEffect(livePanelIds) { paneExpansion.retainOnly(livePanelIds) }
-
-    val visibleNodes =
-        remember(treeNodes, searchQuery) {
-            if (searchQuery.isBlank()) treeNodes else TabTreeBuilder.filterTreeNodes(treeNodes, searchQuery)
-        }
 
     // The flash is cleared here rather than by the row, so it survives the row being recomposed
     // into a different group - which is exactly what a move does to it.
@@ -212,35 +204,17 @@ private fun TabTree(
                     .onGloballyPositioned { panelOrigin = it.boundsInWindow().topLeft },
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            BossSearchBar(
-                query = searchQuery,
-                onQueryChange = { searchQuery = it },
-                placeholder = "Search tabs",
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        // Padding BEFORE height, not after. The other order applies the inset
-                        // inside the 28dp, squashing the field to 20dp instead of sitting it
-                        // 8dp down from the top of the panel.
-                        .padding(start = PANEL_PADDING, end = PANEL_PADDING, top = PANEL_PADDING)
-                        .height(SEARCH_HEIGHT),
-            )
             Spacer(modifier = Modifier.height(6.dp))
 
-            if (visibleNodes.isEmpty()) {
+            if (treeNodes.isEmpty()) {
                 // weight, not fillMaxSize, for the same reason the list below takes one: the footer
                 // is a sibling in this Column and a child that claims the whole height pushes it
                 // off the bottom.
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     BossEmptyState(
-                        icon = if (searchQuery.isNotBlank()) Icons.Outlined.Search else Icons.Outlined.Tab,
-                        message = if (searchQuery.isNotBlank()) "No matches" else "No active tabs",
-                        description =
-                            if (searchQuery.isNotBlank()) {
-                                "Nothing matching \"$searchQuery\""
-                            } else {
-                                "Open a tab and it will show up here"
-                            },
+                        icon = Icons.Outlined.Tab,
+                        message = "No active tabs",
+                        description = "Open a tab and it will show up here",
                     )
                 }
             } else {
@@ -262,7 +236,7 @@ private fun TabTree(
                             ),
                     verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
-                    visibleNodes.forEachIndexed { index, node ->
+                    treeNodes.forEachIndexed { index, node ->
                         workspaceGroup(
                             node = node,
                             isFirst = index == 0,
@@ -275,11 +249,6 @@ private fun TabTree(
                             treeState = treeState,
                             dragState = dragState.takeIf { transferSupported },
                             paneExpansion = paneExpansion,
-                            // A search has already trimmed the tree to what matched, so collapsing
-                            // a pane now would hide the very rows the user searched for. Under a
-                            // search every section is open; the collapse is a way to shorten a
-                            // list you are BROWSING.
-                            allowCollapse = searchQuery.isBlank(),
                             transferSupported = transferSupported,
                             scope = scope,
                             onMove = ::moveTab,
@@ -296,7 +265,8 @@ private fun TabTree(
                 splitViewOperations = splitViewOperations,
                 filePickerProvider = filePickerProvider,
                 genericDialogProvider = genericDialogProvider,
-                workspacePicker = picker,
+                panelDialogs = panelDialogs,
+                onOpenQuickSwitcher = { panelDialogs.toggle(PanelDialog.QUICK_SWITCHER) },
                 // Union rather than the live set alone: a workspace running under an id the saved
                 // list has never seen still has tabs in this list, and an older host answers the
                 // live-set getter with an empty default.
@@ -314,6 +284,19 @@ private fun TabTree(
             activeTabsProvider = activeTabsProvider,
             panelOrigin = panelOrigin,
         )
+
+        // Raised HERE rather than from the footer button that opens it, unlike the workspace
+        // picker. The switcher needs `activeTabsProvider`, which is non-null exactly inside this
+        // function, and the footer draws nothing at all without a `workspaceDataProvider` - so a
+        // switcher hosted there would vanish on a host that serves tabs and no workspaces, taking
+        // the deep-link action's only landing place with it.
+        if (panelDialogs.isOpen(PanelDialog.QUICK_SWITCHER)) {
+            QuickSwitcherDialog(
+                activeTabsProvider = activeTabsProvider,
+                thisWindowId = windowId,
+                onDismiss = { panelDialogs.close() },
+            )
+        }
         }
     }
 }
@@ -337,7 +320,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
     treeState: TabTreeState,
     dragState: TabDragState?,
     paneExpansion: SplitPaneExpansion,
-    allowCollapse: Boolean,
     transferSupported: Boolean,
     scope: CoroutineScope,
     onMove: (ActiveTabData, String) -> Unit,
@@ -347,8 +329,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
 
     item(key = node.id) {
         val expanded by treeState.expandedWorkspaces.collectAsState()
-        // What is UNDER this header right now, not every tab the workspace owns: a search has
-        // already trimmed the structure, and the confirm names this count.
+        // What is UNDER this header right now, taken from the structure being drawn rather than
+        // from the workspace id, so the confirm names the count it is about to close.
         val tabs = remember(node.tabStructure) { TabTreeBuilder.tabsIn(node.tabStructure) }
         WorkspaceHeader(
             node = node,
@@ -390,7 +372,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
                     contextMenuProvider = contextMenuProvider,
                     dragState = dragState,
                     paneExpansion = paneExpansion,
-                    allowCollapse = allowCollapse,
                     transferSupported = transferSupported,
                     onMove = onMove,
                     onCloseTabs = onCloseTabs,
@@ -414,7 +395,6 @@ private fun TabStructure(
     contextMenuProvider: ContextMenuProvider?,
     dragState: TabDragState?,
     paneExpansion: SplitPaneExpansion,
-    allowCollapse: Boolean,
     transferSupported: Boolean,
     onMove: (ActiveTabData, String) -> Unit,
     onCloseTabs: ((String, List<ActiveTabData>) -> Unit)?,
@@ -482,7 +462,6 @@ private fun TabStructure(
 
                 val isExpanded =
                     panelId == null ||
-                        !allowCollapse ||
                         isActivePane ||
                         paneExpansion.isExpanded(panelId)
 
@@ -546,7 +525,6 @@ private fun TabStructure(
                     contextMenuProvider = contextMenuProvider,
                     dragState = dragState,
                     paneExpansion = paneExpansion,
-                    allowCollapse = allowCollapse,
                     transferSupported = transferSupported,
                     onMove = onMove,
                     onCloseTabs = onCloseTabs,

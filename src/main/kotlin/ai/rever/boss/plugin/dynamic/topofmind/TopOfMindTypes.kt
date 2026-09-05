@@ -35,10 +35,8 @@ sealed class TabTreeNode {
         val tabCount: Int = 0
     ) : TabTreeNode()
 
-    data class TabNode(
-        override val id: String,
-        override val name: String,
-        override val level: Int,
-        val activeTab: ActiveTabData
-    ) : TabTreeNode()
+    // There was a `TabNode` here, a tab as a top-level tree node. Nothing ever built one: the
+    // tree's leaves are `WorkspaceTabStructure.TabItem` inside a workspace, and the only code
+    // that matched on it was the search filter this panel no longer has. It went with that
+    // filter rather than being left as a branch every `when` has to answer and nothing reaches.
 }
