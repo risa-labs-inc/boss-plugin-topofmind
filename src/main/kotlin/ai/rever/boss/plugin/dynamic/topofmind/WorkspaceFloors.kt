@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -65,44 +66,6 @@ private val FLOORS_SIDE_INSET = 10.dp
  */
 private val SKEW = 22.dp
 
-/** The plate's own vertical extent. Two stacked panes get 13dp each, which is a readable band. */
-private val PLATE_DEPTH = 26.dp
-
-/**
- * The slab's thickness: the two vertical faces under the plate that make it read as solid.
- *
- * This is what carries the workspace's NAME, which is why it is 18dp and not the 4dp it started
- * at. At 4 the front face was a line under the plate and the stack read as a pile of cards; at 18
- * it is a face with writing on it, which is what a storey of a building looks like. It also takes
- * the label off the plate, so the pane rectangles are no longer drawn under a row of text.
- */
-private val RISER_DEPTH = 18.dp
-
-/** One slab, top of plate to bottom of face. What a floor draws, before any overlap. */
-private val SLAB_HEIGHT = PLATE_DEPTH + RISER_DEPTH
-
-/**
- * How far a storey BITES INTO the one below it.
- *
- * Flush was not enough. With the slabs merely touching, the left silhouette stepped in by [SKEW] at
- * every seam - a floor's face ends at its plate's front-left corner and the next floor's plate
- * begins at its BACK-left one, which is the skew further right - so the outline restarted at each
- * storey and the stack read as a pile of trays. Overlapping puts the back of a plate UNDER the face
- * above it, which is where a real storey's slab goes, and the corner columns then run straight down
- * the whole building.
- *
- * **How much is not a free choice, and 6dp was not enough.** The step left at a seam is
- * `(PLATE_DEPTH - FLOOR_OVERLAP) / PLATE_DEPTH * SKEW`, because the plate's left edge travels the
- * whole skew over the whole plate depth. At 6dp of 26 that left 17dp of the 22dp step still there,
- * which is why the storeys still read as separate. Closing it COMPLETELY means overlapping by the
- * entire plate - identical boxes stacked with no gap hide each other's top faces exactly - and that
- * is the version with no panes visible below the top floor, which is most of what this view is for.
- *
- * 16dp is the compromise: the step drops to about 8dp, and 10dp of plate is left showing, which is
- * enough to read a two- or four-way split. Raising it further trades the panes for the silhouette.
- */
-private val FLOOR_OVERLAP = 16.dp
-
 /**
  * Air between the rule above the stack and its top floor.
  *
@@ -111,25 +74,103 @@ private val FLOOR_OVERLAP = 16.dp
  */
 private val FLOORS_TOP_GAP = 8.dp
 
-/** The clickable band for one workspace: its slab, less what the storey above takes back. */
-private val BAND_HEIGHT = SLAB_HEIGHT - FLOOR_OVERLAP
+/**
+ * How tall the whole stack is, however many storeys it has.
+ *
+ * Fixed, and sized against the host's own navigation map: that is a 1.5 aspect-ratio box inside a
+ * 10dp inset, so in the sidebar's usual 200dp it stands about 140dp tall including its inset. The
+ * two are the same kind of thing - a small picture of where you are - and a building that grew a
+ * storey taller every time a workspace opened would push the tree out of the panel one row at a
+ * time.
+ *
+ * The storeys scale to fit instead: see [floorMetricsFor]. Above roughly seven floors they hit
+ * their minimum and the stack scrolls rather than shrinking into slivers.
+ */
+internal val FLOORS_HEIGHT = 140.dp
 
 /**
- * How many storeys are on screen before the stack scrolls.
+ * A floor's PITCH as a fraction of its slab - the repeat distance between two storeys.
  *
- * A cap on the HEIGHT rather than on the floor count: a window running three workspaces gives the
- * tree back the room it does not need, and one running a dozen scrolls rather than hiding the
- * bottom of the list behind a "+N more" that cannot be clicked.
- *
- * Four. A slab is 44dp - a 26dp plate over an 18dp face with the name on it - and each one bites
- * 16dp into the storey below, so a band is 28dp and four of them plus the bottom slab's own full
- * height come to 128dp. The deeper bite bought the fourth storey: the stack takes about what it did
- * at three shallower ones, and shows one more workspace.
+ * 0.7 means each storey buries 30% of itself in the one below, which is half its plate at
+ * [RISER_SHARE]. Half the plate is what closes most of the `SKEW`-wide step in the left silhouette
+ * (see [FloorMetrics.overlap]) while leaving the other half of the plate showing, which is what
+ * carries the panes.
  */
-private const val FLOORS_VISIBLE_MAX = 4
+private const val PITCH_SHARE = 0.7f
 
-/** The TOP floor shows a whole slab; the rest show a band each. */
-private val FLOORS_MAX_HEIGHT = SLAB_HEIGHT + BAND_HEIGHT * (FLOORS_VISIBLE_MAX - 1)
+/** The share of a slab given to the face that carries the name; the plate takes the rest. */
+private const val RISER_SHARE = 0.4f
+
+/** A face shorter than this cannot hold an 11sp name, so the PLATE gives way first. */
+internal val MIN_RISER = 16.dp
+
+/** Below this a storey is a sliver: the stack scrolls rather than shrinking past it. */
+internal val MIN_SLAB = 30.dp
+
+/** Above this a two-workspace window draws two enormous slabs instead of a building. */
+internal val MAX_SLAB = 56.dp
+
+/** Two storeys that near cannot both show a name, so the stack scrolls instead. */
+internal val MIN_PITCH = 18.dp
+
+/** With few floors the pitch would otherwise stretch to fill the height and stop reading as one building. */
+private val MAX_FLOOR_GAP = 10.dp
+
+/**
+ * Room between the plate's edge and the name, and the shape of one storey, for a given floor count.
+ *
+ * Everything here used to be a constant, and a stack of six workspaces was simply six times as tall
+ * as one. [FLOORS_HEIGHT] is what is fixed now; the storeys divide it.
+ *
+ * @property slab one storey, top of plate to bottom of face - what a floor DRAWS.
+ * @property pitch the repeat distance between two storeys - what a floor OCCUPIES. Smaller than
+ *   [slab], and the difference is the overlap.
+ */
+internal data class FloorMetrics(
+    val slab: Dp,
+    val pitch: Dp,
+    val plate: Dp,
+    val riser: Dp,
+) {
+    /**
+     * How far a storey bites into the one below it.
+     *
+     * The step left in the left silhouette at a seam is `(plate - overlap) / plate * SKEW`, because
+     * the plate's left edge travels the whole skew over the whole plate depth. Overlapping by half
+     * the plate halves that step. Closing it entirely means overlapping by the WHOLE plate -
+     * identical boxes stacked with no gap hide each other's top faces exactly - which is the version
+     * with no panes visible below the top floor, and the panes are what this view is for.
+     */
+    val overlap: Dp get() = (slab - pitch).coerceAtLeast(0.dp)
+}
+
+/**
+ * The shape of a storey in a stack of [count], sized so the whole stack is [FLOORS_HEIGHT] tall.
+ *
+ * `height = slab + (count - 1) * pitch`, since the top floor shows a whole slab and every other one
+ * shows a pitch. Solving that for an ideal slab gives the first line; the clamps are what stop the
+ * two ends being absurd, and each of them trades the fixed height away deliberately:
+ *
+ * - **[MAX_SLAB]**: two workspaces would otherwise draw two 80dp slabs. The stack is then SHORTER
+ *   than [FLOORS_HEIGHT], and the tree gets the difference, which is the better answer.
+ * - **[MIN_SLAB] / [MIN_PITCH]**: past roughly seven floors the storeys would be slivers and two
+ *   faces would overlap so far that neither name is readable. The stack is then TALLER than
+ *   [FLOORS_HEIGHT] and scrolls inside it.
+ * - **[MIN_RISER]**: a face has to hold an 11sp name whatever the slab is, so the plate gives way
+ *   first. At the minimum slab that is a 14dp plate, which still shows a two- or four-way split.
+ */
+internal fun floorMetricsFor(count: Int): FloorMetrics {
+    val ideal = FLOORS_HEIGHT / (PITCH_SHARE * count + (1f - PITCH_SHARE))
+    val slab = ideal.coerceIn(MIN_SLAB, MAX_SLAB)
+    val pitch =
+        if (count > 1) {
+            ((FLOORS_HEIGHT - slab) / (count - 1)).coerceIn(MIN_PITCH, slab + MAX_FLOOR_GAP)
+        } else {
+            slab
+        }
+    val riser = (slab * RISER_SHARE).coerceAtLeast(MIN_RISER)
+    return FloorMetrics(slab = slab, pitch = pitch, plate = slab - riser, riser = riser)
+}
 
 /**
  * Room between the front face's edges and the name written on it.
@@ -298,7 +339,7 @@ internal object WorkspaceFloorPlan {
  * **Always on, and with no heading**, like the host's own navigation map. It had a FLOORS heading
  * with a chevron and a `FloorsViewState` behind it; both are gone. A heading over a picture of the
  * window's workspaces is a label on something that is already showing what it is, and it cost a
- * 24dp row to say so. The block is bounded by [FLOORS_MAX_HEIGHT] and shrinks to fit a window with
+ * 24dp row to say so. The block is bounded by [FLOORS_HEIGHT] and shrinks to fit a window with
  * two workspaces in it, so there was never much height for a toggle to give back.
  */
 @Composable
@@ -310,6 +351,10 @@ internal fun WorkspaceFloors(
 ) {
     val workspaces = remember(nodes) { nodes.filterIsInstance<TabTreeNode.WorkspaceNode>() }
     if (workspaces.isEmpty()) return
+
+    // One shape for the whole building, from how many storeys it has. Read here rather than inside
+    // a floor, because a storey's size is a fact about the stack and not about itself.
+    val metrics = remember(workspaces.size) { floorMetricsFor(workspaces.size) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Divider(color = BossThemeColors.BorderColor)
@@ -323,7 +368,7 @@ internal fun WorkspaceFloors(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(max = FLOORS_MAX_HEIGHT)
+                    .heightIn(max = FLOORS_HEIGHT)
                     .lazyListScrollbar(
                         listState = listState,
                         direction = Orientation.Vertical,
@@ -337,6 +382,7 @@ internal fun WorkspaceFloors(
                 val node = workspaces[index]
                 Floor(
                     node = node,
+                    metrics = metrics,
                     // Nothing is stacked on the top floor, so it is the one storey that shows its
                     // whole slab - back edge included. Every other floor draws only the part the
                     // storey above does not cover.
@@ -367,6 +413,7 @@ internal fun WorkspaceFloors(
 @Composable
 private fun Floor(
     node: TabTreeNode.WorkspaceNode,
+    metrics: FloorMetrics,
     isTop: Boolean,
     isCurrent: Boolean,
     activePanelId: String?,
@@ -411,14 +458,14 @@ private fun Floor(
         // The BAND takes the click, not the parallelogram: selection is per floor, so inverting the
         // projection on every press would buy a hit test nobody can tell apart from this one.
         //
-        // A full slab tall for the TOP storey and FLOOR_OVERLAP shorter for the rest, which is what
-        // the overlap costs each of them. `clipToBounds` is what makes it an overlap rather than a
+        // A full slab tall for the TOP storey and one pitch for the rest, which is what the overlap
+        // costs each of them. `clipToBounds` is what makes it an overlap rather than a
         // collision: the slab below is pulled UP by that much and would otherwise paint over the
         // face of the storey above it, name and all.
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(if (isTop) SLAB_HEIGHT else BAND_HEIGHT)
+                .height(if (isTop) metrics.slab else metrics.pitch)
                 .clipToBounds()
                 .hoverable(interaction)
                 .clickable(onClick = onClick),
@@ -432,8 +479,8 @@ private fun Floor(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .requiredHeight(SLAB_HEIGHT)
-                    .offset(y = if (isTop) 0.dp else -FLOOR_OVERLAP),
+                    .requiredHeight(metrics.slab)
+                    .offset(y = if (isTop) 0.dp else -metrics.overlap),
         ) {
             Canvas(
                 modifier =
@@ -442,7 +489,7 @@ private fun Floor(
                         .padding(horizontal = FLOORS_SIDE_INSET),
             ) {
                 val skew = SKEW.toPx()
-                val riser = RISER_DEPTH.toPx()
+                val riser = metrics.riser.toPx()
                 val depth = size.height - riser
                 val plateWidth = size.width - skew
                 // A panel dragged narrower than the projection needs draws nothing rather than folding
@@ -509,14 +556,14 @@ private fun Floor(
 
             // On the FRONT FACE, under the plate. `at(0f, 1f)` puts that face's left edge at the
             // drawing area's left and its right edge SKEW short of the right, so the trailing pad
-            // carries the skew; it is PLATE_DEPTH down from the top of the slab and RISER_DEPTH tall,
+            // carries the skew; it is the plate's depth down from the top of the slab and the riser's
             // which is the face exactly.
             Row(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(top = PLATE_DEPTH)
-                        .height(RISER_DEPTH)
+                        .padding(top = metrics.plate)
+                        .height(metrics.riser)
                         .padding(
                             start = FLOORS_SIDE_INSET + LABEL_INSET,
                             end = FLOORS_SIDE_INSET + SKEW + LABEL_INSET,
