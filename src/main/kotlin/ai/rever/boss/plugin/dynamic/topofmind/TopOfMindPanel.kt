@@ -66,7 +66,6 @@ fun TopOfMindContent(
     dragState: TabDragState,
     paneExpansion: SplitPaneExpansion,
     panelDialogs: PanelDialogState,
-    floorsState: FloorsViewState,
     windowId: String?,
     scope: CoroutineScope,
 ) {
@@ -93,7 +92,6 @@ fun TopOfMindContent(
                 dragState = dragState,
                 paneExpansion = paneExpansion,
                 panelDialogs = panelDialogs,
-                floorsState = floorsState,
                 windowId = windowId,
                 scope = scope,
             )
@@ -114,7 +112,6 @@ private fun TabTree(
     dragState: TabDragState,
     paneExpansion: SplitPaneExpansion,
     panelDialogs: PanelDialogState,
-    floorsState: FloorsViewState,
     windowId: String?,
     scope: CoroutineScope,
 ) {
@@ -129,7 +126,14 @@ private fun TabTree(
     val currentWorkspaceId = workspaceDataProvider?.currentWorkspace?.collectAsState()?.value?.id
     val transferSupported = remember(activeTabsProvider) { TabTransfer.isSupported(activeTabsProvider) }
 
-    val treeNodes = remember(activeTabs) { TabTreeBuilder.buildTree(activeTabs) }
+    // Keyed on the saved workspaces too, not just the tabs: the tree's ORDER is their `timestamp`
+    // (see TabTreeBuilder.workspaceOrder), so a workspace saved while the panel is open has to
+    // move without waiting for a tab somewhere to change.
+    val savedWorkspaces = workspaceDataProvider?.workspaces?.collectAsState()?.value.orEmpty()
+    val treeNodes =
+        remember(activeTabs, savedWorkspaces) {
+            TabTreeBuilder.buildTree(activeTabs, workspaceDataProvider)
+        }
     // Keyed on the current workspace as well as the tree: the default now says "the workspace on
     // screen is open, the rest are closed", so a switch that changes nothing else still has to
     // re-derive it. Re-running this is idempotent, and it never overrules an explicit toggle.
@@ -273,7 +277,6 @@ private fun TabTree(
                 // Null in a workspace that is not on screen, which is why only the lit floor ever
                 // marks a pane as the one being worked in.
                 activePanelId = activeTabsProvider.activePanelId,
-                floorsState = floorsState,
                 // The SAME switch the workspace headers use. A second copy is a second chance to
                 // drop the preserve step and lose a layout.
                 onSelectWorkspace = { workspaceId ->

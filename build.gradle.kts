@@ -54,6 +54,21 @@ dependencies {
     
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+
+    // The api is compileOnly for the plugin (the host provides it at runtime), so the tests need
+    // it on their own runtime classpath from the same place - one conditional, not two answers.
+    testImplementation(kotlin("test"))
+    testImplementation(
+        if (useLocalDependencies) {
+            files("$bossPluginApiPath/build/libs/boss-plugin-api-1.0.88.jar")
+        } else {
+            files("build/downloaded-deps/boss-plugin-api.jar")
+        }
+    )
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 // Task to build plugin JAR with compiled classes only

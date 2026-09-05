@@ -22,11 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.Divider
-import androidx.compose.material.Icon
 import androidx.compose.material.Text
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -64,11 +60,18 @@ private val FLOORS_SIDE_INSET = 10.dp
  */
 private val SKEW = 22.dp
 
-/** The plate's own vertical extent. Two stacked panes get ~9dp each, which is a readable band. */
-private val PLATE_DEPTH = 18.dp
+/** The plate's own vertical extent. Two stacked panes get 12dp each, which is a readable band. */
+private val PLATE_DEPTH = 24.dp
 
-/** The slab's thickness: the two vertical faces under the plate that make it read as solid. */
-private val RISER_DEPTH = 4.dp
+/**
+ * The slab's thickness: the two vertical faces under the plate that make it read as solid.
+ *
+ * 8dp rather than 4. At 4 the front face was a line under the plate and the stack read as a pile
+ * of cards; the storeys have to look like slabs with something between them for the building to be
+ * a building. It is the more expensive of the two numbers - it is pure height, where the plate at
+ * least carries the panes - which is why [FLOORS_VISIBLE_MAX] came down with it.
+ */
+private val RISER_DEPTH = 8.dp
 
 /** Air between one slab and the next. Small, so the stack reads as a building and not as cards. */
 private val FLOOR_GAP = 5.dp
@@ -82,16 +85,13 @@ private val BAND_HEIGHT = PLATE_DEPTH + RISER_DEPTH + FLOOR_GAP
  * A cap on the HEIGHT rather than on the floor count: a window running three workspaces gives the
  * tree back the room it does not need, and one running a dozen scrolls rather than hiding the
  * bottom of the list behind a "+N more" that cannot be clicked.
+ *
+ * Four rather than five, because a band is 37dp now where it was 27: the block keeps roughly the
+ * 135dp of sidebar it always took, and the storeys inside it got thicker rather than the tree
+ * getting shorter.
  */
-private const val FLOORS_VISIBLE_MAX = 5
+private const val FLOORS_VISIBLE_MAX = 4
 private val FLOORS_MAX_HEIGHT = BAND_HEIGHT * FLOORS_VISIBLE_MAX
-
-// The panel's header language, verbatim: 24dp tall, 10sp SemiBold on 0.8sp tracking, inset 10dp.
-private val FLOORS_HEADER_HEIGHT = 24.dp
-private val FLOORS_HEADER_GAP = 6.dp
-private val FLOORS_CHEVRON = 12.dp
-private const val FLOORS_HEADER_SP = 10
-private val FLOORS_HEADER_TRACKING = 0.8.sp
 
 /**
  * Room between the plate's edge and the label on top of it.
@@ -101,6 +101,9 @@ private val FLOORS_HEADER_TRACKING = 0.8.sp
  * less and a long name's first and last glyphs hang off the slanted ends.
  */
 private val LABEL_INSET = SKEW / 2 + 5.dp
+
+/** Between the workspace name and its tab count, the panel's own header spacing. */
+private val LABEL_GAP = 6.dp
 private const val FLOOR_NAME_SP = 11
 private const val FLOOR_COUNT_SP = 10
 
@@ -114,28 +117,6 @@ private const val PLATE_BASE_ALPHA = 0.45f
 private const val CURRENT_RISER_FRONT_ALPHA = 0.45f
 private const val CURRENT_RISER_SIDE_ALPHA = 0.22f
 private const val PANE_EDGE_ALPHA = 0.7f
-
-/**
- * Whether the floors stack is showing.
- *
- * A CLASS, one instance per mounted panel (see [TopofmindComponent]), for the reason written on
- * [TabTreeState], [TabDragState], [SplitPaneExpansion] and [PanelDialogState]: a top-level `object`
- * here would mean collapsing the stack in one window collapsed it in every other panel too. This
- * plugin has had that bug twice.
- *
- * There is a toggle at all because the stack is a fixed-height block in a sidebar that also has to
- * hold the tree - it takes at most [FLOORS_MAX_HEIGHT], and on a short window that is room the tree
- * would rather have.
- */
-@Stable
-class FloorsViewState {
-    var expanded by mutableStateOf(true)
-        private set
-
-    fun toggle() {
-        expanded = !expanded
-    }
-}
 
 /**
  * One pane's place on a floor plate, as FRACTIONS of the plate (0..1 in both axes).
@@ -274,13 +255,18 @@ internal object WorkspaceFloorPlan {
  * Selection is per FLOOR, not per pane, because switching workspaces is what a floor is for - so
  * the whole band takes the click and nothing here ever inverts the projection to find out which
  * parallelogram a press landed in.
+ *
+ * **Always on, and with no heading**, like the host's own navigation map. It had a FLOORS heading
+ * with a chevron and a `FloorsViewState` behind it; both are gone. A heading over a picture of the
+ * window's workspaces is a label on something that is already showing what it is, and it cost a
+ * 24dp row to say so. The block is bounded by [FLOORS_MAX_HEIGHT] and shrinks to fit a window with
+ * two workspaces in it, so there was never much height for a toggle to give back.
  */
 @Composable
 internal fun WorkspaceFloors(
     nodes: List<TabTreeNode>,
     currentWorkspaceId: String?,
     activePanelId: String?,
-    floorsState: FloorsViewState,
     onSelectWorkspace: (String) -> Unit,
 ) {
     val workspaces = remember(nodes) { nodes.filterIsInstance<TabTreeNode.WorkspaceNode>() }
@@ -288,12 +274,6 @@ internal fun WorkspaceFloors(
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Divider(color = BossThemeColors.BorderColor)
-        FloorsHeader(
-            floorCount = workspaces.size,
-            expanded = floorsState.expanded,
-            onToggle = floorsState::toggle,
-        )
-        if (!floorsState.expanded) return@Column
 
         val listState = rememberLazyListState()
         LazyColumn(
@@ -323,53 +303,6 @@ internal fun WorkspaceFloors(
                 )
             }
         }
-    }
-}
-
-/** The stack's own heading, and the only way to get its height back. */
-@Composable
-private fun FloorsHeader(
-    floorCount: Int,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-) {
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(FLOORS_HEADER_HEIGHT)
-                .clickable(onClick = onToggle)
-                .padding(horizontal = FLOORS_SIDE_INSET),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(FLOORS_HEADER_GAP),
-    ) {
-        Icon(
-            imageVector =
-                if (expanded) {
-                    Icons.Filled.KeyboardArrowDown
-                } else {
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight
-                },
-            contentDescription = if (expanded) "Hide the floors view" else "Show the floors view",
-            modifier = Modifier.size(FLOORS_CHEVRON),
-            tint = BossThemeColors.TextSecondary,
-        )
-        Text(
-            text = "FLOORS",
-            fontSize = FLOORS_HEADER_SP.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = FLOORS_HEADER_TRACKING,
-            color = BossThemeColors.TextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = floorCount.toString(),
-            fontSize = FLOORS_HEADER_SP.sp,
-            color = BossThemeColors.TextMuted,
-            maxLines = 1,
-        )
     }
 }
 
@@ -517,7 +450,7 @@ private fun Floor(
                     .height(PLATE_DEPTH)
                     .padding(horizontal = FLOORS_SIDE_INSET + LABEL_INSET),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(FLOORS_HEADER_GAP),
+            horizontalArrangement = Arrangement.spacedBy(LABEL_GAP),
         ) {
             Text(
                 text = node.name,
