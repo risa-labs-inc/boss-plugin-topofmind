@@ -340,44 +340,42 @@ through the same `switchToWorkspace` the workspace headers use.
   the same `WorkspaceTabStructure` the tree is drawing, in the same order, so a storey and its group
   in the tree can never disagree about the shape of a workspace and always sit in the same
   position.
-- **The storeys overlap by sliding UP and clipping to a SHAPE, not by overflowing DOWN.** Flush was
-  not enough: with the slabs merely touching, the left silhouette stepped in by `SKEW` at every seam
-  - a floor's face ends at its plate's front-left corner and the next floor's plate begins at its
-  back-left one - so the outline restarted at each storey. Every floor draws a whole slab; each one
-  below the top is then slid up by `FLOOR_OVERLAP` inside a band that much shorter, and clipped to
-  what the storey above leaves showing. The picture is identical to letting that storey paint over
-  it, and nothing overlaps anything, so **there is no z-order to get right**.
-  - **The clip is `clipPath`, not `clipToBounds`, and that difference was a visible bug.** A slab's
-    underside runs level across its front face and then SLOPES UP along its side face, so the region
-    it covers is not a rectangle. Clipping the band rectangle took the back-right corner off every
-    plate but the top one - a flat crop across the right of each slab, with nothing above it to
-    justify the cut. The path follows that underside: `overlap` down at the front, a whole
-    plate-depth higher at the far right.
-  - **Every storey's side face runs DOWN to the plate edge of the storey below.** Showing any of a
-    lower plate is non-physical - identical boxes stacked with no gap hide each other's top faces
-    exactly - and the symptom was that plate's back-right corner poking out to the right of the face
-    above, under the side face's slanted bottom edge, where nothing covers it. So a storey's side
-    face is `pitch` deep when the one below is tucked, a whole slab when it stands free, and just
-    the riser for the bottom floor: it reaches the next plate's right edge, the storey below hangs
-    its own side face from that same edge, and the right of the building is one wall with a slanted
-    seam at every plate edge. A lower plate is clipped to a RECTANGLE - below the face above, left
-    of the wall above - so it never draws the corner the wall covers. This replaced a version where
-    the LOWER storey ran its side face UP as a column with vertical edges; that made every floor but
-    the top read as a tray under a box, because the lower plate's slanted edge - the one line that
-    says "slab" - was hidden and a vertical edge stood where it should be.
-  - The first attempt did overflow downward, which meant the UPPER floor had to paint last, which a
-    `LazyColumn` will not do (it paints in index order) - so it used `reverseLayout = true` with the
-    items fed bottom-first. That worked and cost the list its top anchor: with more floors than fit,
-    a reversed list starts scrolled to the BOTTOM, and the top floor lost its back edge off the top
-    of the viewport. Sliding up has no such trade.
-  - **Two storeys STAND FREE: the top one and the selected one.** Both get a full slab of band and
-    no clip, so their whole slab shows - back edge, plate corner and all. The top one because
-    nothing is above it; the selected one because the workspace you are in is the one whose panes
-    are worth reading, and it was arriving half-tucked under its neighbour with its accent outline
-    cut off at the corner. It is lifted by making ROOM, never by drawing over the storey above: a
-    lower slab painted on top would cover the face carrying that workspace's name, and a building
-    does not work that way either. The cost is that the stack is `FLOOR_OVERLAP` taller while the
-    selection is not the top floor, which the `heightIn` cap absorbs.
+- **The stack is a STEP, and that is the only geometry in which every edge closes.** Two identical
+  boxes cannot overlap: push the lower one up into the upper one and its plate is where the upper
+  box's underside is, so its back-right corner has nowhere coherent to be. It poked out as a wedge,
+  was cropped flat, was hidden behind a column, was covered by a skirt - four renderings of one
+  impossible geometry, each of which the user saw and rejected. What CAN sit under a box and still
+  show its top is a box that is bigger toward the viewer. In this projection the depth axis runs
+  up-right by a fixed `SKEW`, so "deeper toward the viewer" means the plate's front edge moves
+  straight down while the back edge and both corners' x stay put: each tucked storey's plate is one
+  STRIP (`plate - overlap`) deeper than the one above, its back edge is exactly the underside of the
+  box above, and its back-right corner lands on the very point where the side face above ends. The
+  visible part of each lower plate is an L - the front strip plus a sliver up its right edge that
+  narrows to nothing at that shared corner. Every box is the same box: front and side faces are one
+  riser tall on every floor. `stepOf` counts tucked storeys down from the nearest free floor; the
+  selected floor stands free at its natural depth, so the step restarts under it.
+  - **Verified with a screenshot, not arithmetic.** The three previous seams were all "correct" on
+    paper. This one was checked by `screencapture -R` of the dev window (bounds from System Events,
+    by unix id) after a hot reload over the dev host's own MCP port, and the first screenshot found
+    a placement bug the arithmetic had hidden (below). The recipe lives in `$CLAUDE_JOB_DIR/tmp`
+    scripts during a session; the durable notes are in the project memory.
+  - **`wrapContentHeight(Top, unbounded = true)`, never `requiredHeight`, for a slab taller than its
+    band.** Both let the child exceed the parent, but `requiredHeight` reports the coerced size and
+    then CENTRES the overflow - the child is silently moved up by half the excess - so every offset
+    applied on top of it was wrong by that half, and every seam drawn since the overlap went in was
+    out by up to a riser. A debug line at the clip height, drawn and screenshotted, is what showed
+    it sitting one riser too high.
+  - **A lower plate is clipped to what the storey above leaves showing**, which is now exactly the
+    L: below the face above across the plate's width, then along the side face's bottom edge to the
+    shared corner at the far right. The side and front faces are drawn unclipped; nothing they cover
+    was drawn in the first place, so there is no z-order to get right and the list stays in reading
+    order.
+  - **Known, unverified: the selected floor when it is NOT the top one.** It stands free at its
+    natural depth, so the storey above it has a riser-tall side face and the free floor's plate
+    begins a whole plate-depth lower at the far right - a visible gap above it on both sides, which
+    is what "lifted clear of the stack" looks like in this geometry. It could not be screenshotted
+    (switching workspace needs a click, and `osascript` has no assistive access); the reasoning is
+    written down here so the first person to see it knows what was intended.
 - **Hit-testing is per floor BAND, not per parallelogram.** Selection is per workspace, so the
   fixed-height `Box` takes the click and the `Canvas` inside it only draws. Inverting the projection
   on every press would buy a hit test nobody could tell apart from this one.
