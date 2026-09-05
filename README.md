@@ -33,6 +33,8 @@ workspace on screen is one row in it.
   rest - the same thing the host's vertical tab bar does. See below.
 - **Close everything under a header**, workspace or split section, after a confirm that names what
   it is about to close and how many.
+- **A floors view** above the footer: every running workspace as a storey of a building, divided
+  into its split panes, with the one on screen lit. Click a storey to switch to it.
 - **A workspace-actions footer** pinned under the tree, mirroring the menu the host hangs off the
   foot of its vertical tab bar.
 
@@ -93,6 +95,32 @@ Three things are deliberate:
   reappears under its new group with a brief highlight. Filing something away is the common case.
 - **The tab is not selected in its new pane.** Use the row (or `tab_focus`) if you want it foremost
   when you next go there.
+
+## The floors view
+
+Under the tree sits a stack of storeys, one per workspace this window is running, in the same order
+the tree lists them - so a workspace is in the same place in both. Each storey is a floor plate
+divided into that workspace's split panes. The workspace on screen is the lit floor, and inside it
+the pane you are working in is lit harder still. Click a storey to switch to that workspace.
+
+Where the tree answers "which workspace and which pane is this tab in" by naming them, the floors
+answer it as a shape: the whole arrangement at once, including the workspaces that are running
+behind the one you can see.
+
+- **It is drawn as a true isometric**, so the storeys sit squarely above one another rather than
+  drifting sideways as they rise. That is not only a style choice: a drifting stack pays the
+  projection's width cost once per floor, and a sidebar that is about 200dp wide runs out of room
+  by the fourth workspace. Stacked straight, the cost is paid once for the whole building, so the
+  view stays legible at any floor count and down to the narrowest the sidebar can be dragged.
+- **The shape is true, the proportions are not.** Which panes there are, whether a split is
+  side-by-side or stacked, and how splits nest inside one another are all exact. How the split is
+  *divided* is not shown: every split draws as equal parts, so a divider you dragged to 20/80 still
+  draws as halves. The plugin api hands a plugin no measured pane rectangles - and a workspace that
+  is not on screen was never measured at all - so the alternative would have been inventing a ratio
+  that looked like a measurement. Read a floor as a plan, not as a screenshot.
+- **Five storeys show at a time** and the rest scroll. Fewer than five and the block shrinks to fit,
+  giving the room back to the tree.
+- **Collapse it** from the FLOORS heading if you would rather have the height for the tree.
 
 ## The workspace footer
 

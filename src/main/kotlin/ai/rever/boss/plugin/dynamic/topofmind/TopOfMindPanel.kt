@@ -66,6 +66,7 @@ fun TopOfMindContent(
     dragState: TabDragState,
     paneExpansion: SplitPaneExpansion,
     panelDialogs: PanelDialogState,
+    floorsState: FloorsViewState,
     windowId: String?,
     scope: CoroutineScope,
 ) {
@@ -92,6 +93,7 @@ fun TopOfMindContent(
                 dragState = dragState,
                 paneExpansion = paneExpansion,
                 panelDialogs = panelDialogs,
+                floorsState = floorsState,
                 windowId = windowId,
                 scope = scope,
             )
@@ -112,6 +114,7 @@ private fun TabTree(
     dragState: TabDragState,
     paneExpansion: SplitPaneExpansion,
     panelDialogs: PanelDialogState,
+    floorsState: FloorsViewState,
     windowId: String?,
     scope: CoroutineScope,
 ) {
@@ -257,6 +260,26 @@ private fun TabTree(
                     }
                 }
             }
+
+            // The same workspaces the tree just listed, drawn as the storeys of a building. A
+            // sibling of the LazyColumn rather than an item in it, for the reason the footer is
+            // one: it has a fixed height and must not scroll away with the tree. It is fed
+            // `treeNodes` rather than reading `SplitConfig` again, so a floor and its group in the
+            // tree can never disagree about the shape of a workspace.
+            WorkspaceFloors(
+                nodes = treeNodes,
+                currentWorkspaceId = currentWorkspaceId,
+                // A getter on the provider, not a flow - read the way the tree's own rows read it.
+                // Null in a workspace that is not on screen, which is why only the lit floor ever
+                // marks a pane as the one being worked in.
+                activePanelId = activeTabsProvider.activePanelId,
+                floorsState = floorsState,
+                // The SAME switch the workspace headers use. A second copy is a second chance to
+                // drop the preserve step and lose a layout.
+                onSelectWorkspace = { workspaceId ->
+                    switchToWorkspace(workspaceId, workspaceDataProvider, splitViewOperations, scope)
+                },
+            )
 
             // Last child of the Column, outside the list: the host's workspace menu, as the foot of
             // this panel. See WorkspaceActionsFooter for what it draws and what it leaves out.
