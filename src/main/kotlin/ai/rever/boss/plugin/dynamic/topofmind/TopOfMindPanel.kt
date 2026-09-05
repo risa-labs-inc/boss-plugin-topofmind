@@ -395,7 +395,14 @@ private fun TabStructure(
                     contextMenuProvider = contextMenuProvider,
                     dragState = dragState,
                     transferTargets = targets,
-                    inCurrentWorkspace = tab.workspaceId == currentWorkspaceId,
+                    // Asked per row rather than precomputed: selectedTabId is a cheap lookup and
+                    // the alternative is a second map to keep in step with a tree that rebuilds.
+                    isSelected = activeTabsProvider.selectedTabId(tab.panelId) == tab.tabId,
+                    // A pane in a workspace that is not on screen is never the focused one, so the
+                    // panel-id match alone would light up a pane behind the current workspace.
+                    isFocused =
+                        tab.workspaceId == currentWorkspaceId &&
+                            activeTabsProvider.activePanelId == tab.panelId,
                     indent = (INDENT_STEP * (depth + 1)).dp,
                     onClick = { activeTabsProvider.selectTab(tab.tabId, tab.panelId) },
                     onClose = { activeTabsProvider.closeTab(tab.tabId) },
