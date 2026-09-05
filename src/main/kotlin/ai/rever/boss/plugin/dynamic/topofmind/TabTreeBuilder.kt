@@ -152,6 +152,22 @@ object TabTreeBuilder {
     }
 
     /**
+     * Every tab under a piece of the tree, in the order it is drawn.
+     *
+     * Takes the STRUCTURE rather than a workspace id, so it answers for exactly what is on screen:
+     * under a search the structure has already been filtered, and a "close everything here" built
+     * on the workspace id would close tabs the user cannot currently see. The count in the confirm
+     * comes from this same list, so what the dialog says and what it does are one thing.
+     */
+    fun tabsIn(structure: List<WorkspaceTabStructure>): List<ActiveTabData> =
+        structure.flatMap { item ->
+            when (item) {
+                is WorkspaceTabStructure.TabItem -> listOf(item.activeTab)
+                is WorkspaceTabStructure.SplitSection -> tabsIn(item.children)
+            }
+        }
+
+    /**
      * Filter tab structure based on search query
      */
     private fun filterTabStructure(

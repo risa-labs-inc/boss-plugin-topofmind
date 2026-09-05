@@ -128,6 +128,53 @@ one from a file, delete one.
   matches. The plugin side is right; the fix belongs in the host.
 - **`liveWorkspaceIds` is a getter, not a flow**, so reading it during composition would never
   recompose. The menu takes a snapshot as it opens, unioned with the workspace ids in the tab list.
+- **The footer's glyph is 20dp inside a 32dp target**, not 14dp. These sit in the same column as
+  the host's own action row (`SIDEBAR_ICON_SIZE` = 32dp buttons wrapping `BossActionButton`'s
+  20dp `iconSize` at 2dp content padding); a 14dp glyph is a tab row's bare icon and read as a
+  smaller class of control next to the host's.
+
+### The headers
+
+`SectionHeaders.kt` draws both header rows, and the split-section one is the host's pane group
+header (`GroupHeaderRow` in `TabBarGroupHeader.kt`) to the dp: 24dp tall, `padding(horizontal =
+10.dp)`, items 8dp apart, `raised` under the pointer, a 10sp SemiBold label on 0.8sp tracking that
+takes `weight(1f)` and ellipsises, and actions as 24dp targets with a 4dp radius around a 12dp
+glyph tinted `textSecondary`, lifting to `textPrimary` on hover.
+
+- **The split glyph is deliberately NOT drawn.** The host's 16x12dp `SplitPositionGlyph` is honest
+  because it is measured from the panes' real rectangles, so it follows a divider as it is dragged.
+  This panel has no measured rectangles at all: its structure comes from the workspace's saved
+  `SplitConfig`, which is `SinglePanel` / `VerticalSplit(left, right)` / `HorizontalSplit(top,
+  bottom)` and **carries no ratio**. Any rectangle drawn from it would be an invented 50/50 - a
+  confident diagram of a split the user may have dragged to 20/80, on top of a layout that can
+  itself lag what is on screen (see "Save cannot snapshot the live layout first"). The host's own
+  KDoc on `SplitPositionGlyph` makes this argument for its null case: a wrong diagram is worse than
+  none. If the api ever hands a plugin the measured pane rects, this is the place to add it.
+- **The chevron leads the row, where the host puts its glyph.** The sections collapse and the
+  host's panes do not, so the disclosure marker is a real difference rather than drift. It sits at
+  the indent because the indent is what says how deep a section is, and a staircase of chevrons
+  down the left edge is what makes that legible. A glyph, if one is ever added, goes BETWEEN the
+  chevron and the label - leading with it would push every chevron in by 16dp plus a gap.
+- **The label stays uppercased**, where the host's is not. This one sits directly under a workspace
+  header in the same tree; a tracked heading and an untracked one stacked 24dp apart read as a
+  mistake rather than a hierarchy.
+- **The trailing inset is 10dp, matching the leading one.** It was 4dp, which was fine while the
+  slot held only a tab count. Two stacked header rows whose action buttons do not line up read as
+  two different controls.
+- **Closing a group asks first, or is not offered.** Both headers carry an `Icons.Outlined.Close`
+  action that closes every tab under them, routed through `genericDialogProvider`'s confirm with
+  the group named and the count spelled out, `isDestructive = true`. A null dialog provider hides
+  the button: a control that closes a dozen running tabs with nothing to undo it is not an
+  acceptable degradation. `TopOfMindPanel` owns the one `closeTabs` lambda every header hangs off,
+  and each header composes its own message because only it knows what it is about to close.
+- **It closes what is DRAWN, not what the workspace owns.** `TabTreeBuilder.tabsIn(structure)`
+  flattens the structure the header is rendering, which a search has already filtered - so the
+  count in the confirm and the tabs that close are one list. The snapshot is taken when the header
+  composes and used verbatim after the dialog returns, because the tree rebuilds roughly every 2s
+  and would otherwise change under an open dialog.
+- **`closeTab` reaches tabs anywhere** (the host's `closeTabAnywhere`), so clearing a workspace
+  that is not on screen does not first have to switch to it. Refresh afterwards, exactly as the
+  move does, rather than waiting on the host's 2s poll.
 
 ### Colours
 

@@ -24,6 +24,7 @@ import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -35,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
@@ -44,11 +46,31 @@ import androidx.compose.ui.unit.sp
 
 // The vertical tab bar's section header, verbatim: 24dp tall, 10sp SemiBold with 0.8sp tracking in
 // textSecondary, inset 10dp from the leading edge. See TabBarSections.kt in the host.
+//
+// The trailing inset is 10dp for the same reason the leading one is: the host's pane group header
+// (`GroupHeaderRow` in TabBarGroupHeader.kt) is `padding(horizontal = 10.dp)` with 24dp actions in
+// it. It was 4dp, which was fine while the trailing slot held only a tab count, and stops being
+// fine the moment both header rows carry an action - two stacked rows whose buttons do not line up
+// read as two different controls.
 private val HEADER_HEIGHT = 24.dp
 private val HEADER_START = 10.dp
-private val HEADER_END = 4.dp
+private val HEADER_END = 10.dp
 private const val HEADER_SIZE_SP = 10
 private val HEADER_TRACKING = 0.8.sp
+private val HEADER_RADIUS = RoundedCornerShape(3.dp)
+private val CHEVRON_SIZE = 12.dp
+
+// The pane group header's item gap in the host, and the tighter one the workspace header keeps.
+// A split section is three things in a row; a workspace header is four (chevron, name, count,
+// action) at the panel's full width, and 8dp between all of them squeezes the name for nothing.
+private val SECTION_GAP = 8.dp
+private val WORKSPACE_GAP = 6.dp
+
+// The host's `HeaderAction`: a target as tall as the row, a 4dp radius, a 12dp glyph, and
+// textSecondary that lifts to textPrimary under the pointer.
+private val ACTION_TARGET = HEADER_HEIGHT
+private val ACTION_GLYPH = 12.dp
+private val ACTION_RADIUS = RoundedCornerShape(4.dp)
 
 private const val COUNT_ALPHA = 0.7f
 private const val DROP_TARGET_FILL_ALPHA = 0.22f
@@ -64,6 +86,10 @@ private const val CURRENT_FILL_ALPHA = 0.16f
  * The header is the target rather than the group's whole area for a reason a drag makes obvious:
  * groups are collapsible, so a collapsed workspace has no area, and it is exactly the workspace
  * you are not looking at that you most want to file something into.
+ *
+ * [onCloseAll] closes every tab under this header. It is NULL when there is nothing to ask with,
+ * and then the button is not drawn: a control that destroys this much has to be able to confirm
+ * first, and an unconfirmable one is worse than an absent one.
  */
 @Composable
 internal fun WorkspaceHeader(
@@ -74,6 +100,7 @@ internal fun WorkspaceHeader(
     showRuleAbove: Boolean,
     onToggleExpand: () -> Unit,
     onActivate: () -> Unit,
+    onCloseAll: (() -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -95,7 +122,7 @@ internal fun WorkspaceHeader(
                     Modifier
                         .fillMaxWidth()
                         .height(HEADER_HEIGHT)
-                        .clip(RoundedCornerShape(3.dp))
+                        .clip(HEADER_RADIUS)
                         .background(
                             // Order matches BossTabButton: a live drop beats everything, then
                             // the current workspace, then hover. Selection outranking hover is
@@ -109,7 +136,7 @@ internal fun WorkspaceHeader(
                             },
                         ).then(
                             if (isDropTarget) {
-                                Modifier.border(1.dp, BossThemeColors.AccentColor, RoundedCornerShape(3.dp))
+                                Modifier.border(1.dp, BossThemeColors.AccentColor, HEADER_RADIUS)
                             } else {
                                 Modifier
                             },
@@ -117,7 +144,7 @@ internal fun WorkspaceHeader(
                         .clickable(onClick = onActivate)
                         .padding(start = HEADER_START, end = HEADER_END),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(WORKSPACE_GAP),
             ) {
                 Icon(
                     imageVector =
@@ -127,7 +154,7 @@ internal fun WorkspaceHeader(
                             Icons.AutoMirrored.Filled.KeyboardArrowRight
                         },
                     contentDescription = if (isExpanded) "Collapse" else "Expand",
-                    modifier = Modifier.size(12.dp).clickable(onClick = onToggleExpand),
+                    modifier = Modifier.size(CHEVRON_SIZE).clickable(onClick = onToggleExpand),
                     tint = BossThemeColors.TextSecondary,
                 )
 
@@ -152,6 +179,17 @@ internal fun WorkspaceHeader(
                     fontSize = HEADER_SIZE_SP.sp,
                     color = BossThemeColors.TextMuted.copy(alpha = COUNT_ALPHA),
                 )
+
+                // Last, after the count, so the row reads "what, how many, and the one thing you
+                // can do to all of it". Its own clickable consumes the press, so closing a
+                // workspace's tabs never also switches to that workspace.
+                onCloseAll?.let { close ->
+                    HeaderAction(
+                        icon = Icons.Outlined.Close,
+                        description = "Close every tab in ${node.name}",
+                        onClick = close,
+                    )
+                }
             }
 
             // The workspace on screen wears the tab bar's marker: full height, leading edge, 3dp.
@@ -195,9 +233,35 @@ private fun Modifier.workspaceDropTarget(
 /**
  * A split section inside a workspace ("Left", "Top", ...).
  *
- * Same typographic style as the workspace header one level up, indented by depth. The two divider
- * stubs either side of the label are gone: with the label already set in tracked small caps they
- * were decoration on top of a signal that was doing the work.
+ * The host's pane group header (`GroupHeaderRow` in TabBarGroupHeader.kt), to the dp: a 24dp row
+ * inset 10dp either side, its items 8dp apart, filled with `raised` under the pointer, a 10sp
+ * SemiBold label on 0.8sp tracking taking `weight(1f)` and ellipsised, and its actions as 24dp
+ * targets around a 12dp glyph. The two divider stubs either side of the label are long gone: with
+ * the label already set in tracked small caps they were decoration on top of a signal that was
+ * already doing the work.
+ *
+ * **The label stays uppercased**, where the host's is not. The host's group header has no other
+ * heading near it; this one sits directly under a workspace header in the same tree, and the two
+ * are the same kind of row. A tracked heading and an untracked one stacked 24dp apart read as a
+ * mistake rather than as a hierarchy.
+ *
+ * **The chevron leads the row, where the host puts its split glyph.** These sections collapse and
+ * the host's panes do not, so the disclosure marker is a real difference rather than drift - and
+ * it belongs at the indent, because the indent is what says how deep a section is and a staircase
+ * of chevrons down the left edge is what makes that depth legible. If the glyph below is ever
+ * drawn it goes BETWEEN the chevron and the label, not before it: leading with the glyph would
+ * push every chevron in by 16dp plus a gap and flatten that staircase.
+ *
+ * **The split glyph is deliberately not drawn.** The host's is honest because it is measured from
+ * the panes' real rectangles, so it follows a divider as it is dragged. Nothing here can be: the
+ * structure this panel renders comes from the workspace's SAVED [SplitConfig], which carries the
+ * split TREE and no ratio at all, so any rectangle drawn from it would be an invented 50/50 - a
+ * confident diagram of a split the user may have dragged to 20/80, over a layout that may itself
+ * be behind what is on screen. `SplitPositionGlyph`'s own KDoc makes this argument for its null
+ * case, and a wrong diagram is worse than none.
+ *
+ * [onCloseAll] closes every tab under this header, and is null when there is nothing to confirm
+ * with - see [WorkspaceHeader].
  */
 @Composable
 internal fun SplitSectionHeader(
@@ -205,6 +269,7 @@ internal fun SplitSectionHeader(
     indentDp: Int,
     isExpanded: Boolean,
     onToggleExpansion: () -> Unit,
+    onCloseAll: (() -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -214,21 +279,23 @@ internal fun SplitSectionHeader(
             Modifier
                 .fillMaxWidth()
                 .height(HEADER_HEIGHT)
-                .clip(RoundedCornerShape(3.dp))
+                .clip(HEADER_RADIUS)
                 .background(if (isHovered) BossColors.darkSurface else Color.Transparent)
                 .hoverable(interactionSource)
                 .clickable(onClick = onToggleExpansion)
                 .padding(start = indentDp.dp + HEADER_START, end = HEADER_END),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(SECTION_GAP),
     ) {
         Icon(
             imageVector =
                 if (isExpanded) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = if (isExpanded) "Collapse" else "Expand",
-            modifier = Modifier.size(12.dp),
+            modifier = Modifier.size(CHEVRON_SIZE),
             tint = BossThemeColors.TextSecondary,
         )
+        // weight(1f) on the label itself, as the host has it, rather than a spacer after it: a
+        // spacer let the label push the trailing action off a narrow panel instead of ellipsising.
         Text(
             text = sectionName.uppercase(),
             fontSize = HEADER_SIZE_SP.sp,
@@ -237,7 +304,49 @@ internal fun SplitSectionHeader(
             color = BossThemeColors.TextSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
-        Box(modifier = Modifier.weight(1f))
+        onCloseAll?.let { close ->
+            HeaderAction(
+                icon = Icons.Outlined.Close,
+                description = "Close every tab in $sectionName",
+                onClick = close,
+            )
+        }
+    }
+}
+
+/**
+ * One icon button on a header row, the host's `HeaderAction` verbatim.
+ *
+ * Always drawn rather than revealed on hover, for the host's reason: a control that only exists
+ * once you are already pointing at it cannot be found by someone looking for it. Its own
+ * `clickable` consumes the press, so it never also fires the row's click underneath it.
+ */
+@Composable
+private fun HeaderAction(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    Box(
+        modifier =
+            Modifier
+                .size(ACTION_TARGET)
+                .clip(ACTION_RADIUS)
+                .background(if (isHovered) BossColors.darkSurface else Color.Transparent)
+                .hoverable(interactionSource)
+                .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            modifier = Modifier.size(ACTION_GLYPH),
+            tint = if (isHovered) BossThemeColors.TextPrimary else BossThemeColors.TextSecondary,
+        )
     }
 }
