@@ -72,6 +72,11 @@ internal val ROW_ICON = 14.dp
 // Fills are alphas over theme tokens rather than a fixed wash, for the same reason the host gives:
 // these rows sit on the panel surface, not on the content floor.
 private const val HOVER_FILL_ALPHA = 0.55f
+
+// BossTabButton's SELECTED_FILL_ALPHA and INACTIVE_FILL_ALPHA. The second is over `lineStrong`,
+// which BossColors exposes only as contextMenuBorder - the same token under a menu-shaped name.
+private const val SELECTED_FILL_ALPHA = 0.16f
+private const val INACTIVE_FILL_ALPHA = 0.35f
 private const val UNSELECTED_TEXT_ALPHA = 0.8f
 private const val DRAG_SOURCE_ALPHA = 0.3f
 private const val MOVED_FLASH_ALPHA = 0.28f
@@ -94,15 +99,20 @@ internal fun TabRow(
     dragState: TabDragState?,
     transferTargets: List<TransferTarget>,
     /**
-     * Whether this tab belongs to the workspace currently on screen.
+     * Whether this tab is the one its pane is SHOWING - the tab bar's `isSelected`.
      *
-     * Deliberately NOT "this is the selected tab": nothing available here can say which tab is
-     * active in a given pane - [ActiveTabData] carries the workspace and the panel and no
-     * selection - and a marker that guessed would be wrong for every pane but one. So this drives
-     * the same full-strength-vs-dimmed TEXT the tab bar uses, and the accent marker lives on the
-     * workspace header, which is a thing we can actually answer.
+     * From `ActiveTabsProvider.selectedTabId(panelId)`. It used to be unanswerable here, which is
+     * why this row marked nothing: activeTabs is a flat list of what exists and every pane has one
+     * tab on top of it that the list does not name.
      */
-    inCurrentWorkspace: Boolean,
+    isSelected: Boolean,
+    /**
+     * Whether this tab's pane is the one the user is working in - the tab bar's `isFocused`.
+     *
+     * From `ActiveTabsProvider.activePanelId`. A pane in a workspace that is not on screen is never
+     * focused, however recently it was, which is what keeps exactly one row wearing the accent.
+     */
+    isFocused: Boolean,
     indent: Dp,
     onClick: () -> Unit,
     onClose: () -> Unit,
@@ -114,9 +124,16 @@ internal fun TabRow(
     val isDragSource = dragState?.dragging?.tabId == tab.tabId
     val justMoved = dragState?.recentlyMovedTabId == tab.tabId
 
+    // BossTabButton's own cascade, token for token and alpha for alpha. Selection outranks hover
+    // there too: pointing at the row you are already on should not replace the marker that says so.
+    // The two selected strengths are the point - accent for the pane you are working in, a quiet
+    // grey for every other pane's current tab - so several panes can each show theirs without four
+    // rows all claiming to be the live one.
     val fill =
         when {
             justMoved -> BossThemeColors.AccentColor.copy(alpha = MOVED_FLASH_ALPHA)
+            isSelected && isFocused -> BossThemeColors.AccentColor.copy(alpha = SELECTED_FILL_ALPHA)
+            isSelected -> BossColors.contextMenuBorder.copy(alpha = INACTIVE_FILL_ALPHA)
             isHovered -> BossColors.darkSurface.copy(alpha = HOVER_FILL_ALPHA)
             else -> Color.Transparent
         }
@@ -165,9 +182,9 @@ internal fun TabRow(
             Text(
                 text = tab.title.ifEmpty { "Untitled" },
                 fontSize = 13.sp,
-                fontWeight = if (inCurrentWorkspace) FontWeight.Medium else FontWeight.Normal,
+                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
                 color =
-                    if (inCurrentWorkspace) {
+                    if (isSelected) {
                         BossThemeColors.TextPrimary
                     } else {
                         BossThemeColors.TextPrimary.copy(alpha = UNSELECTED_TEXT_ALPHA)
@@ -180,7 +197,7 @@ internal fun TabRow(
 
             // No reserved space: the title takes the width back when nothing is shown, which is
             // what keeps a narrow sidebar readable.
-            if (isHovered) {
+            if (isSelected || isHovered) {
                 Icon(
                     imageVector = Icons.Outlined.Close,
                     contentDescription = "Close ${tab.title}",
@@ -191,6 +208,23 @@ internal fun TabRow(
                     tint = BossThemeColors.TextSecondary,
                 )
             }
+        }
+
+        // Drawn last so the fill underneath cannot tint it. Full height, leading edge, 3dp - the
+        // tab bar's marker, not an underline. Accent when this is the pane you are working in, the
+        // quiet line otherwise, so one row reads as live and the rest as merely current.
+        if (isSelected) {
+            Box(
+                modifier =
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .fillMaxHeight()
+                        .width(3.dp)
+                        .background(
+                            if (isFocused) BossThemeColors.AccentColor else BossThemeColors.BorderColor,
+                            RoundedCornerShape(2.dp),
+                        ),
+            )
         }
     }
 }
