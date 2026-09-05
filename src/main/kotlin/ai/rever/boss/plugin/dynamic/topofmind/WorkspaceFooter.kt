@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.Workspaces
 import androidx.compose.runtime.Composable
@@ -117,9 +118,8 @@ private const val MENU_TEXT_SP = 12
  * `getWorkspaceDirectory()` and `resetToDefault()`, which the api does not expose - so there is
  * nothing honest to wire them to. A disabled button would just be the same absence taking up room.
  *
- * Every provider here is nullable and any of them can be null at runtime, so a button whose provider
- * is missing is NOT DRAWN. A shown-but-dead control is a worse answer than a smaller row: it says
- * the action exists and then swallows the click.
+ * The workspace buttons themselves are [WorkspaceActions], which is where the null-provider rules
+ * live; this function owns the rule, the row and the one button that needs no provider.
  */
 @Composable
 internal fun WorkspaceActionsFooter(
@@ -136,20 +136,87 @@ internal fun WorkspaceActionsFooter(
      */
     runningWorkspaceIds: () -> Set<String>,
     /**
-     * Whether the workspace picker is up, held by [TopofmindComponent] rather than remembered
+     * Which dialog this panel is showing, held by [TopofmindComponent] rather than remembered
      * here.
      *
      * It was a `remember` in this function, which is right while the button below is the only
-     * thing that can open it. The host's workspace button opens it too now, through this plugin's
-     * deep-link action handler, and that caller is outside the composition entirely - so the flag
-     * has to live somewhere it can write. Panel-scoped, never process-wide: see
-     * [WorkspacePickerState].
+     * thing that can open it. The host opens both of them now, through this plugin's deep-link
+     * action handler, and that caller is outside the composition entirely - so the state has to
+     * live somewhere it can write. Panel-scoped, never process-wide: see [PanelDialogState].
      */
-    workspacePicker: WorkspacePickerState,
+    panelDialogs: PanelDialogState,
+    /**
+     * Raise the quick switcher.
+     *
+     * A lambda rather than this footer opening it directly, because the switcher needs
+     * `ActiveTabsProvider` and is drawn by [TopOfMindContent] - which has one, and which draws
+     * whether or not there is a workspace provider. See the call site for why that matters.
+     */
+    onOpenQuickSwitcher: () -> Unit,
     scope: CoroutineScope,
 ) {
-    // Every action here reads or writes the workspace list, so without that provider there is no
-    // footer at all - not a footer of dead buttons.
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Divider(color = BossThemeColors.BorderColor)
+        FlowRow(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = FOOTER_SIDE_INSET, vertical = FOOTER_INSET),
+            horizontalArrangement = Arrangement.spacedBy(FOOTER_GAP, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(FOOTER_GAP),
+        ) {
+            WorkspaceActions(
+                workspaceDataProvider = workspaceDataProvider,
+                splitViewOperations = splitViewOperations,
+                filePickerProvider = filePickerProvider,
+                genericDialogProvider = genericDialogProvider,
+                runningWorkspaceIds = runningWorkspaceIds,
+                panelDialogs = panelDialogs,
+                scope = scope,
+            )
+
+            // RIGHTMOST, and the one button always drawn: everything it needs is the panel's own
+            // state, where each workspace action needs a provider that may be absent. Search moved
+            // off the top of the panel and into this row - a field pinned above the tree spent 28dp
+            // of a narrow sidebar permanently, to filter a tree that is already grouped and
+            // collapsible, and the search worth having spans every window rather than this one.
+            FooterAction(
+                icon = Icons.Outlined.Search,
+                description = "Find a tab",
+                onClick = onOpenQuickSwitcher,
+            )
+        }
+    }
+}
+
+/**
+ * The four workspace buttons, emitted straight into the footer's `FlowRow`.
+ *
+ * Split out of [WorkspaceActionsFooter] so its guards can refuse the workspace actions without
+ * refusing the whole footer: the search button beside them depends on none of these providers, and
+ * an early return in the outer function used to take the row, the rule and everything in it away.
+ *
+ * Emitted into the caller's FlowRow rather than wrapped in a layout of its own, so the wrap that
+ * `FlowRow` exists for still counts every button - a `Row` around these would be one child that
+ * cannot break, which is the failure `HostActionsFlowRow` documents.
+ *
+ * Every provider here is nullable and any of them can be null at runtime, so a button whose
+ * provider is missing is NOT DRAWN. A shown-but-dead control is a worse answer than a smaller row:
+ * it says the action exists and then swallows the click.
+ */
+@Composable
+@Suppress("LongParameterList")
+private fun WorkspaceActions(
+    workspaceDataProvider: WorkspaceDataProvider?,
+    splitViewOperations: SplitViewOperations?,
+    filePickerProvider: FilePickerProvider?,
+    genericDialogProvider: GenericDialogProvider?,
+    runningWorkspaceIds: () -> Set<String>,
+    panelDialogs: PanelDialogState,
+    scope: CoroutineScope,
+) {
+    // Every action here reads or writes the workspace list, so without that provider there are no
+    // workspace buttons at all - not a row of dead ones.
     if (workspaceDataProvider == null) return
 
     // Bound as non-null locals so each button's condition below states what THAT button needs.
@@ -170,79 +237,68 @@ internal fun WorkspaceActionsFooter(
     // host's workspace button reaching in through the action handler. Keyed on the visibility, so
     // it fires on the transition and not again while the dialog is up: re-reading it under the
     // user would move the dots around while they are reading the list.
-    LaunchedEffect(workspacePicker.visible) {
-        if (workspacePicker.visible) running = runningWorkspaceIds()
+    val pickerOpen = panelDialogs.isOpen(PanelDialog.WORKSPACE_PICKER)
+    LaunchedEffect(pickerOpen) {
+        if (pickerOpen) running = runningWorkspaceIds()
     }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Divider(color = BossThemeColors.BorderColor)
-        FlowRow(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = FOOTER_SIDE_INSET, vertical = FOOTER_INSET),
-            horizontalArrangement = Arrangement.spacedBy(FOOTER_GAP, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(FOOTER_GAP),
+    if (splits != null) {
+        FooterAction(
+            icon = Icons.Outlined.Workspaces,
+            description = "Open workspace",
+            onClick = { panelDialogs.toggle(PanelDialog.WORKSPACE_PICKER) },
         ) {
-            if (splits != null) {
-                FooterAction(
-                    icon = Icons.Outlined.Workspaces,
-                    description = "Open workspace",
-                    onClick = { workspacePicker.toggle() },
-                ) {
-                    if (workspacePicker.visible) {
-                        WorkspacePickerDialog(
-                            workspaces = workspaces,
-                            currentWorkspaceId = currentWorkspace?.id,
-                            runningWorkspaceIds = running,
-                            onDismiss = { workspacePicker.close() },
-                            onPick = { workspace ->
-                                workspacePicker.close()
-                                // The panel's one switch, shared with a click on a workspace header.
-                                switchToWorkspace(
-                                    workspaceId = workspace.id,
-                                    workspaceDataProvider = workspaceDataProvider,
-                                    splitViewOperations = splits,
-                                    scope = scope,
-                                )
-                            },
-                        )
-                    }
-                }
-            }
-
-            if (dialogs != null) {
-                FooterAction(
-                    icon = Icons.Outlined.Save,
-                    description = "Save workspace",
-                    onClick = { scope.launch { saveWorkspace(workspaceDataProvider, dialogs) } },
-                )
-            }
-
-            if (splits != null && picker != null) {
-                FooterAction(
-                    icon = Icons.Outlined.Upload,
-                    description = "Open workspace from file",
-                    onClick = {
-                        openWorkspaceFromFile(
-                            filePicker = picker,
+            if (pickerOpen) {
+                WorkspacePickerDialog(
+                    workspaces = workspaces,
+                    currentWorkspaceId = currentWorkspace?.id,
+                    runningWorkspaceIds = running,
+                    onDismiss = { panelDialogs.close() },
+                    onPick = { workspace ->
+                        panelDialogs.close()
+                        // The panel's one switch, shared with a click on a workspace header.
+                        switchToWorkspace(
+                            workspaceId = workspace.id,
                             workspaceDataProvider = workspaceDataProvider,
                             splitViewOperations = splits,
-                            dialogs = dialogs,
                             scope = scope,
                         )
                     },
                 )
             }
-
-            if (dialogs != null) {
-                FooterAction(
-                    icon = Icons.Outlined.Delete,
-                    description = "Delete workspace",
-                    onClick = { scope.launch { deleteWorkspace(workspaceDataProvider, dialogs) } },
-                )
-            }
         }
+    }
+
+    if (dialogs != null) {
+        FooterAction(
+            icon = Icons.Outlined.Save,
+            description = "Save workspace",
+            onClick = { scope.launch { saveWorkspace(workspaceDataProvider, dialogs) } },
+        )
+    }
+
+    if (splits != null && picker != null) {
+        FooterAction(
+            icon = Icons.Outlined.Upload,
+            description = "Open workspace from file",
+            onClick = {
+                openWorkspaceFromFile(
+                    filePicker = picker,
+                    workspaceDataProvider = workspaceDataProvider,
+                    splitViewOperations = splits,
+                    dialogs = dialogs,
+                    scope = scope,
+                )
+            },
+        )
+    }
+
+    if (dialogs != null) {
+        FooterAction(
+            icon = Icons.Outlined.Delete,
+            description = "Delete workspace",
+            onClick = { scope.launch { deleteWorkspace(workspaceDataProvider, dialogs) } },
+        )
     }
 }
 

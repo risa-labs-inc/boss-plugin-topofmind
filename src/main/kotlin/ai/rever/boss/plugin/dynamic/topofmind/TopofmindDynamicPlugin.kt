@@ -5,15 +5,23 @@ import ai.rever.boss.plugin.api.DynamicPlugin
 import ai.rever.boss.plugin.api.PluginContext
 
 /**
- * The one action this plugin answers.
+ * The actions this plugin answers, and the dialog each one raises.
  *
  * Reached two ways, and they are the same call: a `boss://plugin?id=<pluginId>&action=…` deep
- * link, and the host's own workspace button at the foot of the vertical tab bar, which dispatches
- * straight into `DeepLinkActionRegistryImpl` rather than inventing a second channel. The host
- * repeats this string; it is a wire name, so it is a constant on both sides and neither can
- * rename it alone.
+ * link, and a host control that dispatches straight into `DeepLinkActionRegistryImpl` rather than
+ * inventing a second channel - the workspace button at the foot of the vertical tab bar for the
+ * picker, Ctrl+Space for the switcher. The host repeats these strings; they are wire names, so
+ * they are constants on both sides and neither can rename one alone.
+ *
+ * A MAP rather than two `if` branches in the handler, because the handler's contract is "true for
+ * an action of mine, false for anything else" and a lookup cannot drift from that. Adding an
+ * action is a line here.
  */
-internal const val ACTION_OPEN_WORKSPACE_PICKER = "open-workspace-picker"
+internal val PANEL_DIALOG_ACTIONS =
+    mapOf(
+        "open-workspace-picker" to PanelDialog.WORKSPACE_PICKER,
+        "open-quick-switcher" to PanelDialog.QUICK_SWITCHER,
+    )
 
 /**
  * Top of Mind dynamic plugin - loaded from an external JAR.
@@ -34,13 +42,13 @@ class TopofmindDynamicPlugin : DynamicPlugin {
     override val url: String = "https://github.com/risa-labs-inc/boss-plugin-topofmind"
 
     /**
-     * Which mounted panel a workspace-picker request lands on.
+     * Which mounted panel a dialog request lands on.
      *
      * A field on the plugin instance, so it is created and thrown away with the plugin and a
      * reload cannot leave a stale one behind. The per-panel dialog state hangs off
-     * [TopofmindComponent]; this only decides which of them is asked.
+     * [TopofmindComponent]; this only decides which of them is asked, and which dialog to ask for.
      */
-    private val pickerRequests = WorkspacePickerRequests()
+    private val dialogRequests = PanelDialogRequests()
 
     override fun register(context: PluginContext) {
         context.panelRegistry.registerPanel(TopofmindInfo) { ctx, panelInfo ->
@@ -57,7 +65,10 @@ class TopofmindDynamicPlugin : DynamicPlugin {
                 // host that does not offer them, which hides the buttons that need them.
                 filePickerProvider = context.filePickerProvider,
                 genericDialogProvider = context.genericDialogProvider,
-                pickerRequests = pickerRequests,
+                dialogRequests = dialogRequests,
+                // Read once per panel, from the context the host built for this window. Nullable
+                // on the api, and the switcher treats null as "cannot say" rather than "elsewhere".
+                windowId = context.windowId,
                 scope = context.pluginScope,
             )
         }
@@ -65,8 +76,13 @@ class TopofmindDynamicPlugin : DynamicPlugin {
         context.registerMcpToolProvider(
             TopofmindMcpToolProvider(pluginId, context.activeTabsProvider, context.workspaceDataProvider),
         )
-        // Lets the host's workspace button raise this panel's workspace picker instead of dropping
-        // its own menu.
+        // Lets the host raise this panel's dialogs: its workspace button opens the picker instead
+        // of dropping its own menu, and Ctrl+Space opens the quick switcher instead of the host's
+        // own copy of one, which has been deleted.
+        //
+        // Returning false for an action this build does not know is what the host reads as "this
+        // version cannot do that" - it is how a host newer than the plugin tells an old build apart
+        // from a missing one and offers an update rather than an install.
         //
         // No matching unregister, and none is wanted: the host wraps a dynamic plugin's context in
         // `TrackingPluginContext`, which records a deep-link handler as a UI extension and removes
@@ -82,8 +98,8 @@ class TopofmindDynamicPlugin : DynamicPlugin {
                     params: Map<String, String>,
                 ): Boolean {
                     // Unknown actions are the registry's to log, not this handler's to guess at.
-                    if (action != ACTION_OPEN_WORKSPACE_PICKER) return false
-                    pickerRequests.request()
+                    val dialog = PANEL_DIALOG_ACTIONS[action] ?: return false
+                    dialogRequests.request(dialog)
                     return true
                 }
             },

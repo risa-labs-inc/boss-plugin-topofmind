@@ -155,9 +155,9 @@ object TabTreeBuilder {
      * Every tab under a piece of the tree, in the order it is drawn.
      *
      * Takes the STRUCTURE rather than a workspace id, so it answers for exactly what is on screen:
-     * under a search the structure has already been filtered, and a "close everything here" built
-     * on the workspace id would close tabs the user cannot currently see. The count in the confirm
-     * comes from this same list, so what the dialog says and what it does are one thing.
+     * a "close everything here" built on the workspace id would close tabs that are not under the
+     * header that was clicked. The count in the confirm comes from this same list, so what the
+     * dialog says and what it does are one thing.
      */
     fun tabsIn(structure: List<WorkspaceTabStructure>): List<ActiveTabData> =
         structure.flatMap { item ->
@@ -187,59 +187,5 @@ object TabTreeBuilder {
             .map { it.activeTab.panelId }
             .distinct()
             .singleOrNull()
-    }
-
-    /**
-     * Filter tab structure based on search query
-     */
-    private fun filterTabStructure(
-        structure: List<WorkspaceTabStructure>,
-        searchQuery: String
-    ): List<WorkspaceTabStructure> {
-        return structure.mapNotNull { item ->
-            when (item) {
-                is WorkspaceTabStructure.TabItem -> {
-                    val tabUrl = item.activeTab.url
-                    val tabMatches = item.activeTab.title.contains(searchQuery, ignoreCase = true) ||
-                            (tabUrl?.contains(searchQuery, ignoreCase = true) == true)
-                    if (tabMatches) item else null
-                }
-
-                is WorkspaceTabStructure.SplitSection -> {
-                    val matchingChildren = filterTabStructure(item.children, searchQuery)
-                    if (matchingChildren.isNotEmpty()) {
-                        item.copy(children = matchingChildren)
-                    } else null
-                }
-            }
-        }
-    }
-
-    /**
-     * Filter tree nodes based on search query
-     */
-    fun filterTreeNodes(
-        nodes: List<TabTreeNode>,
-        searchQuery: String
-    ): List<TabTreeNode> {
-        return nodes.mapNotNull { node ->
-            when (node) {
-                is TabTreeNode.WorkspaceNode -> {
-                    val filteredStructure = filterTabStructure(node.tabStructure, searchQuery)
-                    val workspaceMatches = node.name.contains(searchQuery, ignoreCase = true)
-
-                    if (workspaceMatches || filteredStructure.isNotEmpty()) {
-                        node.copy(tabStructure = filteredStructure)
-                    } else null
-                }
-
-                is TabTreeNode.TabNode -> {
-                    val tabUrl = node.activeTab.url
-                    val tabMatches = node.activeTab.title.contains(searchQuery, ignoreCase = true) ||
-                            (tabUrl?.contains(searchQuery, ignoreCase = true) == true)
-                    if (tabMatches) node else null
-                }
-            }
-        }
     }
 }
