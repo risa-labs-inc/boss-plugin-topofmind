@@ -168,6 +168,28 @@ object TabTreeBuilder {
         }
 
     /**
+     * The pane a split section stands for, or null when the section is not one pane.
+     *
+     * [buildTabStructure] wraps a `SinglePanel` leaf's tabs directly, so a section whose children
+     * are all [WorkspaceTabStructure.TabItem] is one pane and every one of those tabs carries its
+     * `panelId`. A section whose children are further sections is a CONTAINER for a nested split:
+     * it has no pane of its own, no tab it is currently showing, and therefore nothing to collapse
+     * to - which is why the panel never collapses one.
+     *
+     * Null also for an empty section, and for the (impossible-by-construction, cheap-to-check)
+     * case of one section holding tabs from two panes.
+     */
+    fun paneIdOf(children: List<WorkspaceTabStructure>): String? {
+        if (children.isEmpty()) return null
+        if (children.any { it !is WorkspaceTabStructure.TabItem }) return null
+        return children
+            .filterIsInstance<WorkspaceTabStructure.TabItem>()
+            .map { it.activeTab.panelId }
+            .distinct()
+            .singleOrNull()
+    }
+
+    /**
      * Filter tab structure based on search query
      */
     private fun filterTabStructure(

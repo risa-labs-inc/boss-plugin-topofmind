@@ -26,13 +26,40 @@ workspace on screen is one row in it.
 - **Search** filters the tree.
 - **Per-type icons** so a terminal, a browser tab and an editor tab are distinguishable at a glance,
   with real favicons where the tab has one.
-- **Collapsible groups** with tab counts. The workspace on screen starts expanded and every other
-  one starts collapsed; split sections start collapsed. Open or close a group yourself and it stays
-  the way you left it for the rest of the session, switching workspaces included.
+- **Collapsible workspace groups** with tab counts. The workspace on screen starts expanded and
+  every other one starts collapsed. Open or close a group yourself and it stays the way you left it
+  for the rest of the session, switching workspaces included.
+- **Split panes collapse to the tab they are showing**, with a row of favicons standing in for the
+  rest - the same thing the host's vertical tab bar does. See below.
 - **Close everything under a header**, workspace or split section, after a confirm that names what
   it is about to close and how many.
 - **A workspace-actions footer** pinned under the tree, mirroring the menu the host hangs off the
   foot of its vertical tab bar.
+
+## A pane you are not working in collapses
+
+A workspace split four ways can put twenty rows in the tree for one workspace. So a split section
+draws only the tab its pane is currently showing, and puts a summary row underneath standing in for
+the others: up to eight favicons, then `+N`. Each favicon goes straight to its tab.
+
+Favicons rather than "7 more tabs", which said how many there were and nothing about what they
+were - finding one meant opening the pane and reading names.
+
+Which pane is open:
+
+- **The pane you are working in always is.** That is a fact about the split rather than something
+  you have to ask for, and it is never collapsed.
+- **Hovering a section header chooses the open one**, and that choice sticks until you hover
+  another header or leave the panel. It deliberately is not "expanded while the pointer is over the
+  header": that collapses the section the instant you move down onto the rows it just revealed.
+- **Clicking a section header, or the chevron on a summary row, pins that pane open** - a pin
+  survives the pointer leaving the panel, where a hover choice does not.
+- **A workspace that is not on screen has no pane you are working in**, so all of its panes are
+  collapsed until you point at one. Those are the workspaces this exists for.
+- **A section that stands for a nested split** rather than for one pane never collapses: it has no
+  tab of its own to collapse to.
+- **A search opens everything.** The tree is already filtered to what matched, and collapsing would
+  hide the rows you searched for.
 
 ## Closing a group of tabs
 

@@ -38,14 +38,15 @@ a move is a *move of a running thing* rather than a close and reopen.
 
 ```
 TopofmindDynamicPlugin  registers the panel + the tabs_* MCP tools
-TopofmindComponent      owns TabTreeState and TabDragState, one set per mounted panel
+TopofmindComponent      owns TabTreeState, TabDragState and SplitPaneExpansion, one set per panel
 TopOfMindPanel          the panel: search, the tree, workspace switching, the move
 WorkspaceFooter         the workspace actions pinned under the tree
 TabRow                  one tab: 32dp flush row, drag source, context menu
 SectionHeaders          workspace group header (also the drop target) + split section header
 TabTransfer             which workspaces a tab can move to, and the move itself
 TabDragState            drag in flight, drop-target bounds, the post-move highlight
-TabTreeState            which groups are open, and the user's overrides of the default
+TabTreeState            which WORKSPACE groups are open, and the user's overrides of the default
+SplitPaneExpansion      which split pane is showing all its tabs: sticky hover, plus pins
 TabTreeBuilder          activeTabs + workspace layouts -> the tree, in a fixed order
 TabTreeType             tree node types
 ```
@@ -60,7 +61,8 @@ TabTreeType             tree node types
   not drawn, never drawn and dead.
 - **State is component-scoped, never a top-level `object`.** Expansion and drag both used to be
   process-global, which meant two windows showing this panel shared one drag and one set of open
-  groups.
+  groups. `SplitPaneExpansion` is a field on the component for the same reason, where the host's
+  equivalent can afford to be an `object`.
 
 ### Things that bit us, written down
 
@@ -89,6 +91,11 @@ TabTreeType             tree node types
   user's toggles in a `Map<String, Boolean>` rather than a set of exceptions: a set cannot tell "the
   user closed this" from "the rule closed this", and the tree is rebuilt roughly every 2s.
   `syncDefaultExpansion(nodes, currentWorkspaceId)` is pure in its inputs so a rebuild is a no-op.
+- **"Expanded while hovered" is the wrong model, and it is the obvious one.** It collapses the
+  group the instant the pointer moves down onto the rows it just revealed, because those rows are
+  underneath where the pointer was going. Hovering a header CHOOSES the open pane and the choice is
+  sticky; only leaving the panel or hovering another header drops it. Copied from the host's
+  `TabGroupExpansion` KDoc, which is where this was worked out.
 - **A reflective probe against the host's provider does not work.** `ApiActiveTabsProviderAdapter`
   is a private class, so `getMethod(...).invoke(...)` finds the method and then throws
   `IllegalAccessException`. Call the interface member directly.
@@ -141,20 +148,18 @@ header (`GroupHeaderRow` in `TabBarGroupHeader.kt`) to the dp: 24dp tall, `paddi
 takes `weight(1f)` and ellipsises, and actions as 24dp targets with a 4dp radius around a 12dp
 glyph tinted `textSecondary`, lifting to `textPrimary` on hover.
 
-- **The split glyph is deliberately NOT drawn.** The host's 16x12dp `SplitPositionGlyph` is honest
-  because it is measured from the panes' real rectangles, so it follows a divider as it is dragged.
-  This panel has no measured rectangles at all: its structure comes from the workspace's saved
-  `SplitConfig`, which is `SinglePanel` / `VerticalSplit(left, right)` / `HorizontalSplit(top,
-  bottom)` and **carries no ratio**. Any rectangle drawn from it would be an invented 50/50 - a
-  confident diagram of a split the user may have dragged to 20/80, on top of a layout that can
-  itself lag what is on screen (see "Save cannot snapshot the live layout first"). The host's own
-  KDoc on `SplitPositionGlyph` makes this argument for its null case: a wrong diagram is worse than
-  none. If the api ever hands a plugin the measured pane rects, this is the place to add it.
-- **The chevron leads the row, where the host puts its glyph.** The sections collapse and the
-  host's panes do not, so the disclosure marker is a real difference rather than drift. It sits at
-  the indent because the indent is what says how deep a section is, and a staircase of chevrons
-  down the left edge is what makes that legible. A glyph, if one is ever added, goes BETWEEN the
-  chevron and the label - leading with it would push every chevron in by 16dp plus a gap.
+- **The split glyph is a position marker, not a measured diagram.** The host's 16x12dp
+  `SplitPositionGlyph` is honest because it is drawn from the panes' real rectangles, so it follows
+  a divider as it is dragged. This panel has no measured rectangles at all: its structure comes
+  from the workspace's saved `SplitConfig`, which is `SinglePanel` / `VerticalSplit(left, right)` /
+  `HorizontalSplit(top, bottom)` and **carries no ratio**. So the fill here is a schematic half: it
+  says WHICH side a pane is on - which is what "Left" already claims - and nothing about how the
+  split is actually divided. Read it that way, and if the api ever hands a plugin the measured pane
+  rects, this is the function that should start using them.
+- **There is no chevron on a section header.** The glyph leads the row where the host puts its own,
+  and it brightens when the pane is open, which is the state a chevron would have carried. The
+  collapsed pane's summary row keeps a real chevron, because that row has nothing else to say
+  "open this".
 - **The label stays uppercased**, where the host's is not. This one sits directly under a workspace
   header in the same tree; a tracked heading and an untracked one stacked 24dp apart read as a
   mistake rather than a hierarchy.
@@ -175,6 +180,48 @@ glyph tinted `textSecondary`, lifting to `textPrimary` on hover.
 - **`closeTab` reaches tabs anywhere** (the host's `closeTabAnywhere`), so clearing a workspace
   that is not on screen does not first have to switch to it. Refresh afterwards, exactly as the
   move does, rather than waiting on the host's 2s poll.
+
+### Collapsing a split pane
+
+`SplitPaneExpansion.kt` is the host's `TabGroupExpansion` (BossConsole,
+`main_window_panels/TabGroupExpansion.kt`) ported. A split section that is not the one being worked
+in draws only the tab its pane is showing, plus a summary row of favicons standing in for the rest,
+so a four-way split costs a few rows rather than twenty.
+
+- **Hovered and pinned are separate collections.** Hovering a section header (or its summary row)
+  chooses which pane is the open one and that choice persists until another header is hovered or
+  the pointer leaves the PANEL; clicking the header, or the summary row's chevron, pins the pane
+  open and that survives the pointer leaving. Two collections, because leaving the panel must not
+  silently undo a click.
+- **The panel is the only hover boundary that counts.** `TopOfMindPanel` puts one `hoverable` on
+  the panel's root Box and calls `panelExited()` when it goes false. A per-section exit is exactly
+  what must NOT clear the choice - moving from a header down onto its rows leaves that header.
+- **`retainOnly(panelIds)` on every rebuild.** Both collections are keyed by panel id and nothing
+  tells them when a pane closes, so a long session accumulates ids and a recycled id would come up
+  pinned open for no reason. Called from `TabTree` off the live panel ids in `activeTabs`.
+- **The active pane is never asked about.** `activeTabsProvider.activePanelId`, in the workspace on
+  screen, is always expanded - that is a fact about the split rather than something hover decided.
+- **A workspace that is NOT on screen has no focused pane at all**, so every one of its panes reads
+  as "not the one being worked in" and collapses to its selected tab until the pointer chooses one.
+  That is the consistent reading, and those workspaces are the long tail this collapse exists for.
+- **Only leaf sections collapse.** `TabTreeBuilder.paneIdOf` returns the pane a section stands for,
+  and null for a section whose children are further sections: a container for a nested split has no
+  tab of its own to collapse TO. Its header therefore carries no toggle and no hover choice, rather
+  than a click that does nothing.
+- **A search expands everything.** The tree is already filtered to what matched, so collapsing
+  would hide the very rows that were searched for. `allowCollapse = searchQuery.isBlank()`.
+- **The row a collapsed pane keeps is an ordinary `TabRow`**, emitted by recursing into
+  `TabStructure` with a one-item structure. Hand-building it would be a second copy of the markers,
+  the menu, the drag and the close, drifting away from the first.
+- **The summary row is favicons, not a count.** The host's KDoc has the reason: "7 more tabs" says
+  how many there were and nothing about what they were. Capped at 8 chips plus a `+N`, so it is
+  always exactly one row tall. Its chips reuse `TabRow`'s `TabGlyph` (now `internal`) so a tab
+  looks the same collapsed as it does with a row of its own.
+- **A chip's hover fill is `contextMenuBorder`, not `darkSurface`.** The row underneath is already
+  `darkSurface` once the pointer is anywhere in it, so a chip in the same token would be invisible
+  exactly when it is being pointed at.
+- **The chips carry no tooltip**, where the host's do: the plugin ui exposes no hover-tooltip
+  primitive, and a raw Compose `Popup` renders behind a hardware-composited browser surface.
 
 ### Colours
 
