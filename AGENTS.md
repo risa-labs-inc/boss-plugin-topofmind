@@ -19,7 +19,9 @@ Every open tab across every running workspace, as a tree, with a tab movable bet
 ./gradlew processResources  # Process resources (syncs version)
 ```
 
-`PaneStructureTest` pins what can be checked without a screen: that a section is named by whatever
+`FloorMetricsTest` pins that the floors stack is a fixed height whatever the workspace count, and
+that each clamp gives that up in the right direction. `PaneStructureTest` pins what can be checked
+without a screen: that a section is named by whatever
 `ActiveTabData.splitPosition` says, that sections are flat and in the host's order, that workspaces
 are ordered oldest-saved first, and that the floor plan takes a pane's name literally only when the
 names actually tile the plate. The api is `compileOnly` for the plugin, so the tests take it onto
@@ -273,24 +275,40 @@ through the same `switchToWorkspace` the workspace headers use.
   axis, so a building's corner columns are drawn as vertical lines and congruent floor plates sit
   squarely above one another. That is what is drawn here, and it is why the skew is a flat 22dp for
   the whole building however many storeys it has.
-- **The numbers, so the next change can be judged against them.** 10dp of inset each side, `SKEW`
-  22dp, a 26dp plate over an 18dp riser, and each storey **bites 16dp into the one below** - so a
-  slab is 44dp, a band is 28dp, and the cap is one full slab plus three bands - 128dp. How deep the bite goes is not a free choice: the step left at a seam is
-  `(PLATE_DEPTH - FLOOR_OVERLAP) / PLATE_DEPTH * SKEW`, since the plate's left edge travels the
-  whole skew over the whole plate depth. 6dp of 26 left 17dp of the 22dp step, which still read as
-  separate floors; 16dp takes it to about 8dp and leaves 10dp of plate showing. Closing the step
-  entirely means overlapping by the WHOLE plate - identical boxes stacked with no gap hide each
-  other's top faces exactly - and that is the version with no panes visible below the top floor. The riser started at 4dp and the plate at 18dp, which made a storey read as a
-  card with a line under it; the riser is what carries the workspace NAME now, which is most of why
-  it is 18. An 8dp gap does sit under the rule ABOVE the stack, or the top plate's back edge lands
-  on that rule and the two read as one line. There is no rule BELOW: a line under the building read
-  as ground it was standing on rather than as the top of the footer, so `WorkspaceActionsFooter`
-  draws none. At the sidebar's usual 200dp the plate is 158dp wide: a two-pane split draws two 79dp
-  blocks, a four-way split four 39dp blocks. Dragged down to 120dp - which the footer's own
-  `FlowRow` note says is reachable - the plate is 78dp and a four-way split still draws four 19dp
-  blocks. The shallow-perspective fallback (flat rectangles, each slightly narrower as it recedes)
-  was not needed: nothing here becomes a sliver, because the projection's cost is a constant rather
-  than a per-floor one.
+- **The HEIGHT is fixed and the storeys divide it.** `FLOORS_HEIGHT` is 140dp, sized against the
+  host's own navigation map (a 1.5 aspect-ratio box inside a 10dp inset, so about that tall in a
+  200dp sidebar). The two are the same kind of thing, a small picture of where you are - and every
+  number in here used to be a constant, so six workspaces drew a building six times as tall as one
+  and pushed the tree out of the panel a row at a time. `floorMetricsFor(count)` solves
+  `height = slab + (count - 1) * pitch` for the slab, with `PITCH_SHARE` 0.7: each storey buries 30%
+  of itself in the one below, which is half its plate at `RISER_SHARE` 0.4.
+- **Half the plate is what the overlap is FOR.** The step left in the left silhouette at a seam is
+  `(plate - overlap) / plate * SKEW`, because the plate's left edge travels the whole skew over the
+  whole plate depth - so with the storeys merely touching, the outline stepped in by the full 22dp
+  at every seam and the stack read as a pile of trays. Half the plate halves it. Closing it entirely
+  means overlapping by the WHOLE plate - identical boxes stacked with no gap hide each other's top
+  faces exactly - which is the version with no panes visible below the top floor, and the panes are
+  what this view is for.
+- **Three clamps give the fixed height up, each in a chosen direction.** `MAX_SLAB` (56dp) stops two
+  workspaces drawing two 80dp slabs; the stack is then SHORTER than 140dp and the tree gets the
+  difference. `MIN_SLAB` (30dp) and `MIN_PITCH` (18dp) stop a dozen workspaces becoming slivers with
+  two names on top of each other; the stack is then TALLER and scrolls inside its cap. `MIN_RISER`
+  (16dp) keeps a face able to hold an 11sp name whatever the slab is, so the PLATE gives way first -
+  at the minimum slab that is a 14dp plate, which still shows a two- or four-way split.
+  `FloorMetricsTest` pins the fixed height over 3..7 storeys and each clamp's direction; two of
+  those fail against a pitch that ignores the count.
+- **The rest of the geometry, so the next change can be judged against it.** 10dp of inset each
+  side and `SKEW` 22dp, both fixed. The riser started at 4dp and the plate at 18dp, which made a
+  storey read as a card with a line under it; the riser is what carries the workspace NAME now,
+  which is why it has a share of the slab and a floor of its own. An 8dp gap sits under the rule
+  ABOVE the stack, or the top plate's back edge lands on that rule and the two read as one line.
+  There is no rule BELOW: a line under the building read as ground it was standing on rather than as
+  the top of the footer, so `WorkspaceActionsFooter` draws none. At the sidebar's usual 200dp the
+  plate is 158dp wide: a two-pane split draws two 79dp blocks, a four-way split four 39dp blocks.
+  Dragged down to 120dp - which the footer's own `FlowRow` note says is reachable - the plate is
+  78dp and a four-way split still draws four 19dp blocks. The shallow-perspective fallback (flat
+  rectangles, each slightly narrower as it recedes) was not needed: nothing here becomes a sliver,
+  because the projection's cost is a constant rather than a per-floor one.
 - **The label goes on the slab, not beside it, and on the FACE rather than the plate.** A name in
   its own column to the right wants about 60dp permanently, which at 120dp would leave the plate
   under 40dp - four panes of 10dp, the exact illegible outcome the view exists to avoid. It was on
@@ -333,10 +351,11 @@ through the same `switchToWorkspace` the workspace headers use.
 - **Hit-testing is per floor BAND, not per parallelogram.** Selection is per workspace, so the
   fixed-height `Box` takes the click and the `Canvas` inside it only draws. Inverting the projection
   on every press would buy a hit test nobody could tell apart from this one.
-- **`heightIn(max = ...)`, not `height(...)`.** Three storeys are on screen and the rest scroll. A
-  window running three workspaces gives the room it does not need back to the tree, where a fixed
-  height would hold it empty; capping the floor COUNT instead would have put a "+N more" in a panel
-  where the thing behind it cannot be clicked.
+- **`heightIn(max = ...)`, not `height(...)`.** For three or more workspaces the storeys are sized
+  to fill exactly `FLOORS_HEIGHT`, so the two agree; for one or two `MAX_SLAB` bites and the block
+  is shorter, and holding the full height empty there would take room the tree can use. Past the
+  clamps it scrolls. Capping the floor COUNT instead would have put a "+N more" in a panel where the
+  thing behind it cannot be clicked.
 - **Always on, and with no heading**, like the host's navigation map. There was a FLOORS heading
   with a chevron and a `FloorsViewState` behind it; both are gone. A heading over a picture of the
   window's workspaces labels something that is already showing what it is, and it cost a 24dp row
