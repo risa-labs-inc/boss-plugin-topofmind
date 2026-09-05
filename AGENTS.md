@@ -19,8 +19,9 @@ Every open tab across every running workspace, as a tree, with a tab movable bet
 ./gradlew processResources  # Process resources (syncs version)
 ```
 
-`FloorMetricsTest` pins that the floors stack is a fixed height whatever the workspace count, and
-that each clamp gives that up in the right direction. `PaneStructureTest` pins what can be checked
+`FloorMetricsTest` pins that the floors stack is a fixed height whatever the workspace count, that
+the bite between two storeys is the same at every stack size, and that each clamp gives the height
+up in the right direction. `PaneStructureTest` pins what can be checked
 without a screen: that a section is named by whatever
 `ActiveTabData.splitPosition` says, that sections are flat and in the host's order, that workspaces
 are ordered oldest-saved first, and that the floor plan takes a pane's name literally only when the
@@ -280,23 +281,28 @@ through the same `switchToWorkspace` the workspace headers use.
   200dp sidebar). The two are the same kind of thing, a small picture of where you are - and every
   number in here used to be a constant, so six workspaces drew a building six times as tall as one
   and pushed the tree out of the panel a row at a time. `floorMetricsFor(count)` solves
-  `height = slab + (count - 1) * pitch` for the slab, with `PITCH_SHARE` 0.7: each storey buries 30%
-  of itself in the one below, which is half its plate at `RISER_SHARE` 0.4.
-- **Half the plate is what the overlap is FOR.** The step left in the left silhouette at a seam is
+  `height = count * slab - (count - 1) * FLOOR_OVERLAP` for the slab. **Only the SLAB is dynamic**:
+  the bite between two storeys is a constant 12dp wherever it is. A fraction of the slab was the
+  other option and it makes the bite deepest exactly when there are two workspaces and the plates
+  are largest and most worth seeing; a constant is also the thing a reader can hold onto, since the
+  storeys resize and the join between them does not.
+- **What the bite is FOR.** The step left in the left silhouette at a seam is
   `(plate - overlap) / plate * SKEW`, because the plate's left edge travels the whole skew over the
   whole plate depth - so with the storeys merely touching, the outline stepped in by the full 22dp
-  at every seam and the stack read as a pile of trays. Half the plate halves it. Closing it entirely
-  means overlapping by the WHOLE plate - identical boxes stacked with no gap hide each other's top
-  faces exactly - which is the version with no panes visible below the top floor, and the panes are
-  what this view is for.
-- **Three clamps give the fixed height up, each in a chosen direction.** `MAX_SLAB` (56dp) stops two
-  workspaces drawing two 80dp slabs; the stack is then SHORTER than 140dp and the tree gets the
-  difference. `MIN_SLAB` (30dp) and `MIN_PITCH` (18dp) stop a dozen workspaces becoming slivers with
-  two names on top of each other; the stack is then TALLER and scrolls inside its cap. `MIN_RISER`
-  (16dp) keeps a face able to hold an 11sp name whatever the slab is, so the PLATE gives way first -
-  at the minimum slab that is a 14dp plate, which still shows a two- or four-way split.
-  `FloorMetricsTest` pins the fixed height over 3..7 storeys and each clamp's direction; two of
-  those fail against a pitch that ignores the count.
+  at every seam and the stack read as a pile of trays. Closing it entirely means biting the WHOLE
+  plate - identical boxes stacked with no gap hide each other's top faces exactly - which is the
+  version with no panes visible below the top floor, and the panes are what this view is for.
+- **The clamps give the fixed height up, each in a chosen direction.** The height is exact for three
+  to five workspaces; outside that a clamp bites. `MAX_SLAB` (56dp) stops one or two workspaces
+  drawing 70-80dp slabs; the stack is then SHORTER than 140dp and the tree gets the difference.
+  `MIN_SLAB` (30dp), `MIN_PITCH` (18dp) and `MAX_OVERLAP_OF_PLATE` (0.55) stop a dozen workspaces
+  becoming slivers with two names on top of each other; the stack is then TALLER and scrolls inside
+  its cap. `MIN_RISER` (16dp) keeps a face able to hold an 11sp name whatever the slab is, so the
+  PLATE gives way first - at the minimum slab that is a 14dp plate, which still shows a two- or
+  four-way split. `MAX_OVERLAP_OF_PLATE` is the one clamp on the bite itself: a constant bite is
+  only constant while there is a plate to take it out of. `FloorMetricsTest` pins the fixed height
+  over 3..5 storeys, that the bite does not move with the stack size, and each clamp's direction;
+  three of those fail against an overlap derived from the plate.
 - **The rest of the geometry, so the next change can be judged against it.** 10dp of inset each
   side and `SKEW` 22dp, both fixed. The riser started at 4dp and the plate at 18dp, which made a
   storey read as a card with a line under it; the riser is what carries the workspace NAME now,

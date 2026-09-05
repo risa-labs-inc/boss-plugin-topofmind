@@ -20,9 +20,9 @@ class FloorMetricsTest {
 
     @Test
     fun `the stack is FLOORS_HEIGHT tall wherever the clamps do not bite`() {
-        // 3 through 7: the range a window is actually in. Rounding on Dp division is why this is a
-        // tolerance and not an equality.
-        (3..7).forEach { count ->
+        // 3 through 5: below that MAX_SLAB bites and above it MIN_RISER does. Rounding on Dp
+        // division is why this is a tolerance and not an equality.
+        (3..5).forEach { count ->
             val height = stackHeight(count)
             assertTrue(
                 abs((height - FLOORS_HEIGHT).value) < 1f,
@@ -33,9 +33,9 @@ class FloorMetricsTest {
 
     @Test
     fun `more storeys means smaller ones, never taller`() {
-        val heights = (3..7).map { stackHeight(it).value }
-        val slabs = (3..7).map { floorMetricsFor(it).slab.value }
-        assertTrue(slabs.zipWithNext().all { (a, b) -> b < a }, "slabs did not shrink: $slabs")
+        val heights = (3..5).map { stackHeight(it).value }
+        val slabs = (3..8).map { floorMetricsFor(it).slab.value }
+        assertTrue(slabs.zipWithNext().all { (a, b) -> b <= a }, "slabs did not shrink: $slabs")
         assertTrue(heights.all { abs(it - FLOORS_HEIGHT.value) < 1f }, "height moved: $heights")
     }
 
@@ -65,6 +65,22 @@ class FloorMetricsTest {
         assertTrue(
             stackHeight(2) < FLOORS_HEIGHT,
             "two floors took ${stackHeight(2)}; MAX_SLAB is meant to hand the difference to the tree",
+        )
+    }
+
+    @Test
+    fun `the bite between two storeys is the same at every stack size`() {
+        // The SLAB is what scales. The bite only gives way when the plate is too thin to take it,
+        // which is the MAX_OVERLAP_OF_PLATE clamp and only happens at the small end.
+        val bites = (2..5).map { floorMetricsFor(it).overlap.value }
+        assertTrue(
+            bites.zipWithNext().all { (a, b) -> abs(a - b) < 0.5f },
+            "the bite moved with the stack size: $bites",
+        )
+        val small = floorMetricsFor(12)
+        assertTrue(
+            small.overlap < floorMetricsFor(4).overlap,
+            "a 14dp plate still took the full bite, leaving nothing readable on it",
         )
     }
 
