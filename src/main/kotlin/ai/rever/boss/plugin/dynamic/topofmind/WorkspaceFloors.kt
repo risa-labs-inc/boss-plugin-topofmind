@@ -567,17 +567,11 @@ private fun Floor(
                 val frontRight = at(1f, 1f)
                 val backRight = at(1f, 0f)
 
-                fun drawSlab() {
-                    // The two vertical faces first, so the plate lands on top of them. A vertical
-                    // extrusion stays vertical in this projection, so these are a straight drop.
-                    val front = quad(frontLeft, frontRight, dropped(frontRight), dropped(frontLeft))
-                    val side = quad(backRight, frontRight, dropped(frontRight), dropped(backRight))
-                    drawPath(front, riserFront)
-                    drawPath(side, riserSide)
+                val front = quad(frontLeft, frontRight, dropped(frontRight), dropped(frontLeft))
+                val plate = quad(at(0f, 0f), at(1f, 0f), at(1f, 1f), at(0f, 1f))
 
-                    val plate = quad(at(0f, 0f), at(1f, 0f), at(1f, 1f), at(0f, 1f))
+                fun drawPlate() {
                     drawPath(plate, plateBase)
-
                     panes.forEachIndexed { index, pane ->
                         val shape =
                             quad(
@@ -592,36 +586,72 @@ private fun Floor(
                         // empty pane and the label sitting over them.
                         drawPath(shape, paneEdge, style = Stroke(width = stroke))
                     }
-
-                    drawPath(front, outline, style = Stroke(width = stroke))
-                    drawPath(side, outline, style = Stroke(width = stroke))
                     drawPath(plate, outline, style = Stroke(width = stroke))
                 }
 
-                if (standsFree) {
-                    drawSlab()
+                if (isTop) {
+                    // The one storey with nothing above it, so the one drawn as a whole box: two
+                    // vertical faces first, so the plate lands on top of them - a vertical extrusion
+                    // stays vertical in this projection, so these are a straight drop - and the
+                    // plate's slanted right edge is the real top of the column.
+                    val side = quad(backRight, frontRight, dropped(frontRight), dropped(backRight))
+                    drawPath(front, riserFront)
+                    drawPath(side, riserSide)
+                    drawPlate()
+                    drawPath(front, outline, style = Stroke(width = stroke))
+                    drawPath(side, outline, style = Stroke(width = stroke))
                     return@Canvas
                 }
 
-                // Everything the storey ABOVE leaves showing, which is not a rectangle and was
-                // drawn as one. That storey's underside runs level across its front face and then
-                // SLOPES UP along its side face, so a horizontal cut at the band's top took the
-                // back-right corner off every plate but the top one - visible as a flat crop
-                // across the right of each slab, with nothing above it to justify the cut.
-                //
-                // This slab sits `overlap` lower than the one above, so in these coordinates that
-                // underside is `overlap` down at the front and a whole plate-depth higher at the
-                // far right, where the side face's bottom edge has climbed.
+                // A storey with another one above it. Where that storey's slab ENDS, in these
+                // coordinates: `overlap` down when this one is tucked under it, level with the top
+                // when this one stands free. Its front face ends there, flat; its side face ends
+                // on a line that climbs a whole plate-depth from there to the far right.
+                val topLine = if (standsFree) 0f else overlapPx
+
+                // Only what the storey above leaves showing. The plate is clipped to it because the
+                // part above is under that storey's faces, which are already drawn and must not be
+                // painted over.
                 val covered =
                     Path().apply {
-                        moveTo(0f, overlapPx)
-                        lineTo(plateWidth, overlapPx)
-                        lineTo(size.width, overlapPx - depth)
+                        moveTo(0f, topLine)
+                        lineTo(plateWidth, topLine)
+                        lineTo(size.width, topLine - depth)
                         lineTo(size.width, size.height)
                         lineTo(0f, size.height)
                         close()
                     }
-                clipPath(covered) { drawSlab() }
+                drawPath(front, riserFront)
+                clipPath(covered) { drawPlate() }
+
+                // The COLUMN. This storey's side face, run UP from its own bottom edge to where the
+                // side face above ends, so the two meet on a shared edge and the right of the
+                // building is one continuous face from the top plate down.
+                //
+                // Drawn AFTER the plate, deliberately, and this is what fixes the wedge. Identical
+                // boxes stacked with no gap hide each other's top faces exactly, so showing any of
+                // a lower plate means that plate is where the box above's underside should be -
+                // and its back-right corner then pokes out to the right of the face above, under
+                // the side face's slanted bottom edge, where nothing covers it. In a real building
+                // that corner is inside the column. So the column is drawn over it: the plate keeps
+                // its whole front strip, and its right end is the column's vertical edge rather
+                // than a corner sticking out of the wall.
+                val columnTop = Offset(size.width, topLine - depth)
+                val columnLeft = Offset(plateWidth, topLine)
+                val column = quad(columnTop, columnLeft, dropped(frontRight), dropped(backRight))
+                drawPath(column, riserSide)
+                // Three edges, not four: the top one is the storey above's bottom edge and already
+                // carries that storey's outline, which may be the accent. Stroking it again here
+                // would paint a plain border over a selected floor's outline.
+                val columnEdges =
+                    Path().apply {
+                        moveTo(columnLeft.x, columnLeft.y)
+                        lineTo(plateWidth, size.height)
+                        lineTo(size.width, riser)
+                        lineTo(columnTop.x, columnTop.y)
+                    }
+                drawPath(columnEdges, outline, style = Stroke(width = stroke))
+                drawPath(front, outline, style = Stroke(width = stroke))
             }
 
             // On the FRONT FACE, under the plate. `at(0f, 1f)` puts that face's left edge at the
