@@ -111,7 +111,12 @@ private fun TabTree(
     val transferSupported = remember(activeTabsProvider) { TabTransfer.isSupported(activeTabsProvider) }
 
     val treeNodes = remember(activeTabs) { TabTreeBuilder.buildTree(activeTabs, workspaceDataProvider) }
-    LaunchedEffect(treeNodes) { treeState.syncDefaultExpansion(treeNodes) }
+    // Keyed on the current workspace as well as the tree: the default now says "the workspace on
+    // screen is open, the rest are closed", so a switch that changes nothing else still has to
+    // re-derive it. Re-running this is idempotent, and it never overrules an explicit toggle.
+    LaunchedEffect(treeNodes, currentWorkspaceId) {
+        treeState.syncDefaultExpansion(treeNodes, currentWorkspaceId)
+    }
 
     val visibleNodes =
         remember(treeNodes, searchQuery) {
@@ -248,14 +253,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
     if (node !is TabTreeNode.WorkspaceNode) return
 
     item(key = node.id) {
-        val expanded by treeState.expandedNodes.collectAsState()
+        val expanded by treeState.expandedWorkspaces.collectAsState()
         WorkspaceHeader(
             node = node,
-            isExpanded = node.id in expanded,
+            isExpanded = node.workspaceId in expanded,
             isCurrent = currentWorkspaceId == node.workspaceId,
             dragState = dragState,
             showRuleAbove = !isFirst,
-            onToggleExpand = { treeState.toggleExpansion(node.id) },
+            onToggleExpand = { treeState.toggleExpansion(node.workspaceId) },
             onActivate = {
                 switchToWorkspace(node.workspaceId, workspaceDataProvider, splitViewOperations, scope)
             },
@@ -263,8 +268,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
     }
 
     item(key = "${node.id}-body") {
-        val expanded by treeState.expandedNodes.collectAsState()
-        if (node.id in expanded) {
+        val expanded by treeState.expandedWorkspaces.collectAsState()
+        if (node.workspaceId in expanded) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 TabStructure(
                     structure = node.tabStructure,

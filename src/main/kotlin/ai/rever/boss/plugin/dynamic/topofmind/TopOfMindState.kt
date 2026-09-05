@@ -11,8 +11,10 @@ import kotlinx.coroutines.flow.StateFlow
  * collapsed it in every other panel instance too, which read as the panel losing its place.
  */
 class TabTreeState {
-    private val _expandedNodes = MutableStateFlow<Set<String>>(emptySet())
-    val expandedNodes: StateFlow<Set<String>> = _expandedNodes
+    // Workspaces that are open, keyed by workspaceId. Derived output, never written by the UI
+    // except through [toggleExpansion] - see [syncDefaultExpansion] for the rule it follows.
+    private val _expandedWorkspaces = MutableStateFlow<Set<String>>(emptySet())
+    val expandedWorkspaces: StateFlow<Set<String>> = _expandedWorkspaces
 
     // Split sections, keyed "workspaceId:sectionPath". Collapsed by default: a workspace that is
     // not split has no sections at all, and one that is usually wants its shape summarised first.
@@ -20,33 +22,47 @@ class TabTreeState {
     val expandedSections: StateFlow<Set<String>> = _expandedSections
 
     /**
-     * Workspaces the user has explicitly collapsed.
+     * Workspaces the user has explicitly opened or closed, keyed by workspaceId.
      *
-     * Tracked separately from [_expandedNodes] because the default is EXPANDED and the tree is
-     * rebuilt from scratch on every refresh. Seeding "everything expanded" on each rebuild would
-     * re-open a group the user just closed; seeding nothing would collapse everything the moment a
-     * tab changed. Recording the exceptions is the only version of this that survives a rebuild.
+     * A Map rather than the old Set of collapsed ids, because the default is no longer a constant:
+     * the workspace on screen is open and every other one is closed. "Absent from a set" could
+     * express exceptions to a fixed rule, but it cannot tell "the user closed this" from "the rule
+     * closed this", and the tree is rebuilt from scratch roughly every 2s. Only an explicit
+     * three-way answer - open, closed, never touched - survives a rebuild without either re-opening
+     * a group the user just closed or collapsing one they just opened.
+     *
+     * An override lasts the session and is never cleared. Switching to a workspace the user had
+     * explicitly collapsed leaves it collapsed: a group that stays shut until they open it is a
+     * smaller surprise than the panel overruling a click they made on purpose.
      */
-    private val collapsedWorkspaces = MutableStateFlow<Set<String>>(emptySet())
+    private val workspaceOverrides = MutableStateFlow<Map<String, Boolean>>(emptyMap())
 
-    fun toggleExpansion(nodeId: String) {
-        val collapsed = collapsedWorkspaces.value.toMutableSet()
-        if (!collapsed.remove(nodeId)) collapsed.add(nodeId)
-        collapsedWorkspaces.value = collapsed
-        _expandedNodes.value =
-            _expandedNodes.value.toMutableSet().also {
-                if (nodeId in collapsed) it.remove(nodeId) else it.add(nodeId)
+    fun toggleExpansion(workspaceId: String) {
+        val wasExpanded = workspaceId in _expandedWorkspaces.value
+        workspaceOverrides.value = workspaceOverrides.value + (workspaceId to !wasExpanded)
+        _expandedWorkspaces.value =
+            _expandedWorkspaces.value.toMutableSet().also {
+                if (wasExpanded) it.remove(workspaceId) else it.add(workspaceId)
             }
     }
 
-    /** Open every workspace the user has not explicitly closed. Safe to call on every rebuild. */
-    fun syncDefaultExpansion(nodes: List<TabTreeNode>) {
-        val collapsed = collapsedWorkspaces.value
-        _expandedNodes.value =
+    /**
+     * Re-derive which workspaces are open: the one on screen, plus every override the user has set.
+     *
+     * A pure function of (nodes, current workspace, overrides), so calling it on every rebuild is a
+     * no-op unless one of those three actually changed. Call it when the current workspace changes
+     * too, not only when the tree does - the default depends on which workspace is current.
+     */
+    fun syncDefaultExpansion(
+        nodes: List<TabTreeNode>,
+        currentWorkspaceId: String?,
+    ) {
+        val overrides = workspaceOverrides.value
+        _expandedWorkspaces.value =
             nodes
                 .filterIsInstance<TabTreeNode.WorkspaceNode>()
-                .map { it.id }
-                .filterNot { it in collapsed }
+                .map { it.workspaceId }
+                .filter { overrides[it] ?: (it == currentWorkspaceId) }
                 .toSet()
     }
 
@@ -58,5 +74,5 @@ class TabTreeState {
 
     fun isSectionExpanded(sectionKey: String): Boolean = _expandedSections.value.contains(sectionKey)
 
-    fun isExpanded(nodeId: String): Boolean = _expandedNodes.value.contains(nodeId)
+    fun isWorkspaceExpanded(workspaceId: String): Boolean = _expandedWorkspaces.value.contains(workspaceId)
 }

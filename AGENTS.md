@@ -44,8 +44,8 @@ TabRow                  one tab: 32dp flush row, drag source, context menu
 SectionHeaders          workspace group header (also the drop target) + split section header
 TabTransfer             which workspaces a tab can move to, and the move itself
 TabDragState            drag in flight, drop-target bounds, the post-move highlight
-TabTreeState            which groups are open
-TabTreeBuilder          activeTabs + workspace layouts -> the tree
+TabTreeState            which groups are open, and the user's overrides of the default
+TabTreeBuilder          activeTabs + workspace layouts -> the tree, in a fixed order
 TabTreeType             tree node types
 ```
 
@@ -76,6 +76,16 @@ TabTreeType             tree node types
   outright rather than loading it with the move disabled. `minBossVersion` is the real gate;
   `supportsTabTransfer` answers the *other* question, which is a host that has the member and says
   no (an out-of-process plugin, whose IPC proxy cannot forward a live component transfer).
+- **`activeTabs` arrives current-workspace-first.** The host's `collectAllActiveTabs` emits the
+  current workspace's tabs and then the preserved ones, so a plain `groupBy { it.workspaceId }`
+  ordered the groups by arrival and every workspace jumped to the top of the panel the moment you
+  switched to it. `TabTreeBuilder.workspaceOrder` sorts by name (case-insensitively, id as
+  tie-break) so a row's position never depends on which workspace is current.
+- **Default expansion depends on the current workspace, so it needs overrides.** Only the workspace
+  on screen is open by default. Because that default is not a constant, `TabTreeState` records the
+  user's toggles in a `Map<String, Boolean>` rather than a set of exceptions: a set cannot tell "the
+  user closed this" from "the rule closed this", and the tree is rebuilt roughly every 2s.
+  `syncDefaultExpansion(nodes, currentWorkspaceId)` is pure in its inputs so a rebuild is a no-op.
 - **A reflective probe against the host's provider does not work.** `ApiActiveTabsProviderAdapter`
   is a private class, so `getMethod(...).invoke(...)` finds the method and then throws
   `IllegalAccessException`. Call the interface member directly.

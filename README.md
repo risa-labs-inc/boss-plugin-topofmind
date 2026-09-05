@@ -21,11 +21,14 @@ workspace on screen is one row in it.
   right-click menu. The tab keeps running across the move: a browser tab keeps its page and its
   playing media, a terminal keeps its session.
 - **The workspace on screen** wears an accent stripe; clicking any workspace header switches to it,
-  and clicking any tab focuses it.
+  and clicking any tab focuses it. Workspaces are listed in name order, so switching never moves a
+  row out from under your cursor.
 - **Search** filters the tree.
 - **Per-type icons** so a terminal, a browser tab and an editor tab are distinguishable at a glance,
   with real favicons where the tab has one.
-- **Collapsible groups** with tab counts. Workspaces start expanded, split sections start collapsed.
+- **Collapsible groups** with tab counts. The workspace on screen starts expanded and every other
+  one starts collapsed; split sections start collapsed. Open or close a group yourself and it stays
+  the way you left it for the rest of the session, switching workspaces included.
 
 ## Moving a tab
 
