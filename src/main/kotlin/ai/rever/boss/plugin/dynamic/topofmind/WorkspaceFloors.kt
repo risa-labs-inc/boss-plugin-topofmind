@@ -61,21 +61,29 @@ private val FLOORS_SIDE_INSET = 10.dp
  */
 private val SKEW = 22.dp
 
-/** The plate's own vertical extent. Two stacked panes get 15dp each, which is a readable band. */
-private val PLATE_DEPTH = 30.dp
+/** The plate's own vertical extent. Two stacked panes get 13dp each, which is a readable band. */
+private val PLATE_DEPTH = 26.dp
 
 /**
  * The slab's thickness: the two vertical faces under the plate that make it read as solid.
  *
- * This is what carries the workspace's NAME, which is why it is 20dp and not the 4dp it started
- * at. At 4 the front face was a line under the plate and the stack read as a pile of cards; at 20
+ * This is what carries the workspace's NAME, which is why it is 18dp and not the 4dp it started
+ * at. At 4 the front face was a line under the plate and the stack read as a pile of cards; at 18
  * it is a face with writing on it, which is what a storey of a building looks like. It also takes
  * the label off the plate, so the pane rectangles are no longer drawn under a row of text.
  */
-private val RISER_DEPTH = 20.dp
+private val RISER_DEPTH = 18.dp
 
-/** Air between one slab and the next. Small, so the stack reads as a building and not as cards. */
-private val FLOOR_GAP = 6.dp
+/**
+ * Nothing between one slab and the next.
+ *
+ * ZERO, deliberately. Air between the storeys made them read as a pile of separate cards; with none
+ * a floor's riser meets the back edge of the plate below it and the stack becomes one building, the
+ * seam between two storeys being exactly the pair of outlines that meet there. It is kept as a
+ * named constant rather than deleted because it is the one number that decides between those two
+ * readings, and a future change wanting cards back should have to set it rather than reintroduce it.
+ */
+private val FLOOR_GAP = 0.dp
 
 /**
  * Air between the rule above the stack and its top floor.
@@ -95,9 +103,9 @@ private val BAND_HEIGHT = PLATE_DEPTH + RISER_DEPTH + FLOOR_GAP
  * tree back the room it does not need, and one running a dozen scrolls rather than hiding the
  * bottom of the list behind a "+N more" that cannot be clicked.
  *
- * Three, because a band is 56dp now: a 30dp plate, a 20dp face with the name on it, and 6dp of
- * air. That is 168dp of sidebar at the cap, against 135dp when a floor was 27dp - the storeys got
- * legible and the block grew by about a row of the tree, rather than by four of them.
+ * Three, because a band is 44dp: a 26dp plate over an 18dp face with the name on it, and nothing
+ * between it and the next. That is 132dp of sidebar at the cap - about what the block took when a
+ * floor was 27dp of a five-storey stack, with the height spent on three legible storeys instead.
  */
 private const val FLOORS_VISIBLE_MAX = 3
 private val FLOORS_MAX_HEIGHT = BAND_HEIGHT * FLOORS_VISIBLE_MAX

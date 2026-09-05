@@ -271,16 +271,20 @@ through the same `switchToWorkspace` the workspace headers use.
   squarely above one another. That is what is drawn here, and it is why the skew is a flat 22dp for
   the whole building however many storeys it has.
 - **The numbers, so the next change can be judged against them.** 10dp of inset each side, `SKEW`
-  22dp, a 30dp plate over a 20dp riser with 6dp of air, so a band is 56dp and three are on screen -
-  168dp at the cap. The riser started at 4dp and the plate at 18dp, which made a storey read as a
-  card with a line under it; the riser is what carries the workspace NAME now, which is most of why
-  it is 20. An 8dp gap sits under the rule above the stack, or the top plate's back edge lands on
-  that rule and the two read as one line. At the sidebar's usual 200dp the plate is 158dp wide: a
-  two-pane split draws two 79dp blocks, a four-way split four 39dp blocks. Dragged down to 120dp -
-  which the footer's own `FlowRow` note says is reachable - the plate is 78dp and a four-way split
-  still draws four 19dp blocks. The shallow-perspective fallback (flat rectangles, each slightly
-  narrower as it recedes) was not needed: nothing here becomes a sliver, because the projection's
-  cost is a constant rather than a per-floor one.
+  22dp, a 26dp plate over an 18dp riser and **nothing between one storey and the next**, so a band
+  is 44dp and three are on screen - 132dp at the cap, about what the block took when a floor was
+  27dp of a five-storey stack. The riser started at 4dp and the plate at 18dp, which made a storey
+  read as a card with a line under it; the riser is what carries the workspace NAME now, which is
+  most of why it is 18. `FLOOR_GAP` is 0 for the same reason and is kept as a named constant rather
+  than deleted: it is the one number that decides between "a building" and "a pile of cards", and
+  the seam between two storeys is exactly the pair of outlines that meet there. An 8dp gap does sit
+  under the rule ABOVE the stack, or the top plate's back edge lands on that rule and the two read
+  as one line. At the sidebar's usual 200dp the plate is 158dp wide: a two-pane split draws two 79dp
+  blocks, a four-way split four 39dp blocks. Dragged down to 120dp - which the footer's own
+  `FlowRow` note says is reachable - the plate is 78dp and a four-way split still draws four 19dp
+  blocks. The shallow-perspective fallback (flat rectangles, each slightly narrower as it recedes)
+  was not needed: nothing here becomes a sliver, because the projection's cost is a constant rather
+  than a per-floor one.
 - **The label goes on the slab, not beside it, and on the FACE rather than the plate.** A name in
   its own column to the right wants about 60dp permanently, which at 120dp would leave the plate
   under 40dp - four panes of 10dp, the exact illegible outcome the view exists to avoid. It was on
