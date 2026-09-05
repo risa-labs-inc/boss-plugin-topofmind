@@ -101,7 +101,8 @@ internal fun TabRow(
     /**
      * Whether this tab is the one its pane is SHOWING - the tab bar's `isSelected`.
      *
-     * From `ActiveTabsProvider.selectedTabId(panelId)`. It used to be unanswerable here, which is
+     * From `ActiveTabsProvider.selectedTabId(workspaceId, panelId)` - the workspace is required
+     * because panel ids repeat across trees. It used to be unanswerable here, which is
      * why this row marked nothing: activeTabs is a flat list of what exists and every pane has one
      * tab on top of it that the list does not name.
      */
