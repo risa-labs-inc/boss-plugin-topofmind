@@ -413,11 +413,14 @@ internal fun SplitSectionHeader(
  * The split, drawn: an outline of the whole area with this section's half filled in.
  *
  * The host's `SplitPositionGlyph` in shape and size, but built from the section's NAME rather than
- * from a measured rectangle, and that difference is the whole caveat. `SplitConfig` carries
- * `VerticalSplit(left, right)` and `HorizontalSplit(top, bottom)` with **no ratio**, so the fill is
- * a schematic half - it says WHICH side this pane is on, which is exactly what "Left" already
- * claims, and it does not say how the split is actually divided. A pane dragged to 20/80 still
- * draws as a half. Read it as a position marker, not a diagram of the layout.
+ * from a measured rectangle, and that difference is the whole caveat. A name says which edges a
+ * pane touches and nothing about where the divider sits, so the fill is a schematic half - it says
+ * WHICH side this pane is on, which is exactly what "Left" already claims, and it does not say how
+ * the split is actually divided. A pane dragged to 20/80 still draws as a half. Read it as a
+ * position marker, not a diagram of the layout.
+ *
+ * [paneAreaFor] is shared with the floors stack, so a header and a storey cannot place one pane on
+ * two different sides.
  *
  * The host's version can be truthful about proportion because it is handed measured pane rects. If
  * the api ever exposes those, this is the function that should start using them.
@@ -429,17 +432,10 @@ private fun SplitPositionGlyph(
     tint: Color,
 ) {
     // Fractions of the frame, matching the host's PaneGlyph shape (left, top, right, bottom).
-    val fill =
-        when (sectionName.lowercase()) {
-            "left" -> Rect(0f, 0f, 0.5f, 1f)
-            "right" -> Rect(0.5f, 0f, 1f, 1f)
-            "top" -> Rect(0f, 0f, 1f, 0.5f)
-            "bottom" -> Rect(0f, 0.5f, 1f, 1f)
-            // A section this does not recognise gets the frame and no fill, for the host's stated
-            // reason: an unmeasured layout drawn as a filled box is a claim about the split rather
-            // than an absence of one.
-            else -> null
-        }
+    // A name this does not place - "Pane 3" - gets the frame and no fill, for the host's stated
+    // reason: the host numbers a pane precisely when no honest name fits, and a filled box would
+    // be a claim about the split rather than an absence of one.
+    val fill = paneAreaFor(sectionName)
     val outline = BossThemeColors.BorderColor
     // Dimmed while the pane is collapsed, so the glyph still carries the state the chevron used to
     // WITHOUT overriding the caller's tint - which is what says whether this is the active pane.

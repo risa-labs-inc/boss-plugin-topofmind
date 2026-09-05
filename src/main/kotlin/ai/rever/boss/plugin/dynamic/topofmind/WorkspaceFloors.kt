@@ -150,22 +150,28 @@ internal data class FloorPane(
 )
 
 /**
- * A workspace's split tree, turned into rectangles on a floor plate.
+ * A workspace's panes, turned into rectangles on a floor plate.
  *
- * **Structurally true, schematically proportioned.** The structure is exact: which panes there are,
- * whether a split is side-by-side or stacked, and how the nesting goes. The PROPORTIONS are not,
- * and cannot be. `SplitConfig` is `SinglePanel` / `VerticalSplit(left, right)` /
- * `HorizontalSplit(top, bottom)` and carries **no ratio**, so a divider dragged to 20/80 is drawn
- * as halves - and a workspace that is not on screen was never measured, so not even the host has
- * bounds for it. The host's own `SplitMap` can be truthful about proportion because it is handed
- * the panes' measured rectangles; nothing on the plugin api hands a plugin those. This is the same
- * caveat `SplitPositionGlyph` in `SectionHeaders.kt` already carries, and if the api ever exposes
- * measured pane rects, this is the second function that should start using them.
+ * The panes and their names come from [TabTreeBuilder], which takes both from the host - so a
+ * storey and its group in the tree above it can never disagree about what the workspace looks
+ * like. Where a pane goes on the plate comes from [paneAreaFor], the same mapping the section
+ * headers' position glyph uses.
  *
- * Every level divides its area into EQUAL parts. No ratio is invented from tab counts or from
- * anything else: a guess that looked like a measurement would be worse than a stated schematic.
+ * **Structurally true, schematically proportioned.** Which panes there are and which side each one
+ * is on is exact. The PROPORTIONS are not, and cannot be: a name says which edges a pane touches
+ * and nothing about where the divider sits, so a split dragged to 20/80 is drawn as halves. The
+ * host's own `SplitMap` can be truthful about proportion because it is handed the panes' measured
+ * rectangles; nothing on the plugin api hands a plugin those.
+ *
+ * No ratio is invented from tab counts or from anything else: a guess that looked like a
+ * measurement would be worse than a stated schematic.
  */
 internal object WorkspaceFloorPlan {
+    private val WHOLE_PLATE = Rect(0f, 0f, 1f, 1f)
+
+    /** Rounding room on the "do these rectangles cover the plate" test. */
+    private const val COVERAGE_TOLERANCE = 0.001
+
     /**
      * The panes of one workspace, in the order [TabTreeBuilder] built them.
      *
@@ -174,41 +180,74 @@ internal object WorkspaceFloorPlan {
      * like - including the flat fallback [TabTreeBuilder] uses when the layout's panel count does
      * not match the running one, which lands here as a single undivided plate.
      */
-    fun panesOf(structure: List<WorkspaceTabStructure>): List<FloorPane> =
-        panesIn(structure, Rect(0f, 0f, 1f, 1f))
-
-    private fun panesIn(
-        nodes: List<WorkspaceTabStructure>,
-        area: Rect,
-    ): List<FloorPane> {
-        val sections = nodes.filterIsInstance<WorkspaceTabStructure.SplitSection>()
+    fun panesOf(structure: List<WorkspaceTabStructure>): List<FloorPane> {
+        val sections = structure.filterIsInstance<WorkspaceTabStructure.SplitSection>()
         if (sections.isEmpty()) {
-            // A leaf: [TabTreeBuilder.buildTabStructure] wraps a SinglePanel's tabs directly, so a
-            // list with no sections in it is exactly one pane. `paneIdOf` answers null for an empty
-            // one, which is right - it has no tabs to take an id from, and it is still drawn.
+            // A workspace with one pane: [TabTreeBuilder] emits its tabs with no section over them,
+            // because one pane is not a split. `paneIdOf` answers null for an empty one, which is
+            // right - it has no tabs to take an id from, and it is still drawn.
             return listOf(
                 FloorPane(
-                    paneId = TabTreeBuilder.paneIdOf(nodes),
-                    tabCount = TabTreeBuilder.tabsIn(nodes).size,
-                    area = area,
+                    paneId = TabTreeBuilder.paneIdOf(structure),
+                    tabCount = TabTreeBuilder.tabsIn(structure).size,
+                    area = WHOLE_PLATE,
                 ),
             )
         }
-        // Which way this split runs comes from the section NAMES, which is all there is: the
-        // builder emits "Left"/"Right" for a VerticalSplit and "Top"/"Bottom" for a HorizontalSplit.
-        val stacked = sections.first().sectionName.equals("Top", ignoreCase = true) ||
-            sections.first().sectionName.equals("Bottom", ignoreCase = true)
-        val parts = sections.size
-        return sections.flatMapIndexed { index, section ->
-            val slice =
-                if (stacked) {
-                    val step = area.height / parts
-                    Rect(area.left, area.top + step * index, area.right, area.top + step * (index + 1))
-                } else {
-                    val step = area.width / parts
-                    Rect(area.left + step * index, area.top, area.left + step * (index + 1), area.bottom)
-                }
-            panesIn(section.children, slice)
+
+        val named = sections.map { paneAreaFor(it.sectionName) }
+        val areas = if (tiles(named)) named.filterNotNull() else evenSlices(sections)
+        return sections.mapIndexed { index, section ->
+            FloorPane(
+                paneId = TabTreeBuilder.paneIdOf(section.children),
+                tabCount = TabTreeBuilder.tabsIn(section.children).size,
+                area = areas[index],
+            )
+        }
+    }
+
+    /**
+     * Whether these rectangles are a floor plan: every pane placed, none over another, no gaps.
+     *
+     * The exact path is worth having and worth refusing. "Left" plus "Top right" plus
+     * "Bottom right" is a real arrangement and the names describe it completely, so it is drawn
+     * as it is. "Left" plus "Pane 2" plus "Right" is the three-column split, where the host
+     * numbers the middle pane because no honest name fits - taking the two names at face value
+     * would draw two halves with the third pane on top of them both.
+     *
+     * The area test is what catches a gap; overlap alone would accept two panes named "Left" and
+     * "Top" and leave half the plate blank.
+     */
+    private fun tiles(areas: List<Rect?>): Boolean {
+        val placed = areas.filterNotNull()
+        if (placed.size != areas.size) return false
+        val covered = placed.sumOf { (it.width * it.height).toDouble() }
+        if (kotlin.math.abs(covered - 1.0) > COVERAGE_TOLERANCE) return false
+        return placed.indices.none { i ->
+            (i + 1..placed.lastIndex).any { j -> placed[i].overlaps(placed[j]) }
+        }
+    }
+
+    /**
+     * Equal parts, in the panel's own order, when the names do not place every pane.
+     *
+     * The AXIS still comes from the names: a pane the host called "Top" or "Bottom" runs the full
+     * width of the workspace, so its siblings are stacked and slicing into columns would draw a
+     * three-row split lying on its side. With nothing to go on it slices into columns, which is
+     * the sidebar's wider axis.
+     *
+     * Equal, and never weighted by tab count - a guess that looked like a measurement would be
+     * worse than a stated schematic.
+     */
+    private fun evenSlices(sections: List<WorkspaceTabStructure.SplitSection>): List<Rect> {
+        val stacked = sections.any { namesStackedPane(it.sectionName) }
+        val step = 1f / sections.size
+        return sections.indices.map { index ->
+            if (stacked) {
+                Rect(0f, step * index, 1f, step * (index + 1))
+            } else {
+                Rect(step * index, 0f, step * (index + 1), 1f)
+            }
         }
     }
 }

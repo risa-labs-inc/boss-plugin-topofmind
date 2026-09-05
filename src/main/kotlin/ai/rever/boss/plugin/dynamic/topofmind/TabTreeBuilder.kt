@@ -1,8 +1,6 @@
 package ai.rever.boss.plugin.dynamic.topofmind
 
 import ai.rever.boss.plugin.api.ActiveTabData
-import ai.rever.boss.plugin.api.WorkspaceDataProvider
-import ai.rever.boss.plugin.workspace.SplitConfig
 
 /**
  * Utility to build tree structure from active tabs
@@ -19,129 +17,66 @@ object TabTreeBuilder {
         compareBy({ it.name.lowercase() }, { it.workspaceId })
 
     /**
-     * Extract all panel IDs from layout in depth-first order
-     */
-    private fun extractPanelIds(layout: SplitConfig): List<String> {
-        return when (layout) {
-            is SplitConfig.SinglePanel -> listOf(layout.panel.id)
-            is SplitConfig.VerticalSplit -> extractPanelIds(layout.left) + extractPanelIds(layout.right)
-            is SplitConfig.HorizontalSplit -> extractPanelIds(layout.top) + extractPanelIds(layout.bottom)
-        }
-    }
-
-    /**
-     * Build hierarchical tab structure from workspace layout and panel assignments
-     * Uses position-based mapping instead of ID-based filtering to handle randomly-generated panel IDs
-     */
-    private fun buildTabStructure(
-        tabs: List<ActiveTabData>,
-        layout: SplitConfig?,
-        panelIdMapping: Map<String, String>,
-        level: Int = 0
-    ): List<WorkspaceTabStructure> {
-        if (layout == null || tabs.isEmpty() || panelIdMapping.isEmpty()) {
-            // No layout info, no tabs, or panel count mismatch - return flat list
-            return tabs.map { WorkspaceTabStructure.TabItem(it) }
-        }
-
-        return when (layout) {
-            is SplitConfig.SinglePanel -> {
-                // Map layout panel ID to runtime panel ID
-                val runtimePanelId = panelIdMapping[layout.panel.id]
-                val panelTabs = if (runtimePanelId != null) {
-                    tabs.filter { it.panelId == runtimePanelId }
-                } else {
-                    // Fallback: if mapping fails, try direct ID match
-                    tabs.filter { it.panelId == layout.panel.id }
-                }
-                panelTabs.map { WorkspaceTabStructure.TabItem(it) }
-            }
-
-            is SplitConfig.VerticalSplit -> {
-                listOf(
-                    WorkspaceTabStructure.SplitSection(
-                        sectionName = "Left",
-                        children = buildTabStructure(tabs, layout.left, panelIdMapping, level + 1),
-                        level = level
-                    ),
-                    WorkspaceTabStructure.SplitSection(
-                        sectionName = "Right",
-                        children = buildTabStructure(tabs, layout.right, panelIdMapping, level + 1),
-                        level = level
-                    )
-                )
-            }
-
-            is SplitConfig.HorizontalSplit -> {
-                listOf(
-                    WorkspaceTabStructure.SplitSection(
-                        sectionName = "Top",
-                        children = buildTabStructure(tabs, layout.top, panelIdMapping, level + 1),
-                        level = level
-                    ),
-                    WorkspaceTabStructure.SplitSection(
-                        sectionName = "Bottom",
-                        children = buildTabStructure(tabs, layout.bottom, panelIdMapping, level + 1),
-                        level = level
-                    )
-                )
-            }
-        }
-    }
-
-    /**
-     * Build tree structure from active tabs, grouped by workspace
+     * One section per PANE, named exactly the way the window's own vertical tab bar names it.
      *
-     * @param activeTabs List of all active tabs
-     * @param workspaceDataProvider Provider for workspace data (to access layouts)
+     * This used to rebuild the split TREE from the workspace's saved `SplitConfig` and emit a
+     * section per branch, which was a second source of truth for one arrangement and disagreed with
+     * the bar three ways at once:
+     *
+     * - **Shape.** A nested pane arrived as "RIGHT > TOP", two levels of indent, where the bar an
+     *   inch to the left called the same pane "Top right" in a flat list. The branch a pane hangs
+     *   off on the way down is not what a reader is asking; which pane the tab is in is.
+     * - **Freshness.** `SplitConfig` is the SAVED layout. Split a pane without saving and the
+     *   layout's panel count no longer matches the running one, at which point the whole workspace
+     *   fell back to one undivided list - the panes vanished from the panel while the bar still
+     *   drew them.
+     * - **Identity.** Layout panel ids were matched to runtime ones by their position in a
+     *   depth-first walk, so a mismatch anywhere put a pane's tabs under another pane's heading.
+     *
+     * `ActiveTabData.splitPosition` is the host's own answer, from the same function the bar's
+     * group headers use, so the two agree by construction rather than by two derivations happening
+     * to match.
+     *
+     * **Order is the host's**, not this function's: tabs arrive pane by pane in the order the panes
+     * are laid out, and `groupBy` keeps first-encounter order. So a section's place in the panel is
+     * its pane's place in the window.
+     *
+     * A host too old to populate `splitPosition` leaves every tab's null, and a pane then gets
+     * "Pane N" - the same word the bar uses for a pane no honest name fits. Fewer names, never a
+     * wrong one, and no version gate: the field has always been on `ActiveTabData`.
      */
-    fun buildTree(
-        activeTabs: List<ActiveTabData>,
-        workspaceDataProvider: WorkspaceDataProvider? = null
-    ): List<TabTreeNode> {
-        // Group tabs by workspace
-        val workspaceGroups = activeTabs.groupBy { it.workspaceId }
-        val rootNodes = mutableListOf<TabTreeNode.WorkspaceNode>()
+    private fun buildTabStructure(tabs: List<ActiveTabData>): List<WorkspaceTabStructure> {
+        val panes = tabs.groupBy { it.panelId }
+        // One pane is not a split. A heading over every tab in the workspace would be a claim
+        // about a divider that is not there, which is the bar's rule too.
+        if (panes.size <= 1) return tabs.map { WorkspaceTabStructure.TabItem(it) }
 
-        workspaceGroups.forEach { (workspaceId, tabs) ->
-            val workspaceName = tabs.firstOrNull()?.workspaceName ?: "Unknown"
-
-            // Get workspace layout from WorkspaceDataProvider
-            val workspace = workspaceDataProvider?.workspaces?.value?.find { it.id == workspaceId }
-            val layout = workspace?.layout
-
-            // Create panel ID mapping: layout panel ID -> runtime panel ID
-            // Match panels by their position in depth-first traversal
-            val panelIdMapping = if (layout != null) {
-                val layoutPanelIds = extractPanelIds(layout)
-                val runtimePanelIds = tabs.map { it.panelId }.distinct()
-
-                // Validate panel count matches
-                if (layoutPanelIds.size != runtimePanelIds.size) {
-                    // Fallback: return empty map to trigger flat layout rendering
-                    emptyMap()
-                } else {
-                    // Map layout panel IDs to runtime panel IDs by position
-                    layoutPanelIds.zip(runtimePanelIds).toMap()
-                }
-            } else {
-                emptyMap()
-            }
-
-            // Build tab structure based on layout with panel ID mapping
-            val tabStructure = buildTabStructure(tabs, layout, panelIdMapping)
-
-            val workspaceNode = TabTreeNode.WorkspaceNode(
-                id = "workspace-$workspaceId",
-                name = workspaceName,
-                workspaceId = workspaceId,
-                level = 0,
-                tabStructure = tabStructure,
-                tabCount = tabs.size
+        return panes.values.mapIndexed { index, paneTabs ->
+            WorkspaceTabStructure.SplitSection(
+                sectionName = paneTabs.firstNotNullOfOrNull { it.splitPosition } ?: "Pane ${index + 1}",
+                children = paneTabs.map { WorkspaceTabStructure.TabItem(it) },
             )
-
-            rootNodes.add(workspaceNode)
         }
+    }
+
+    /**
+     * The panel's whole tree: one node per workspace, each holding one section per pane.
+     *
+     * Takes nothing but the tabs. It used to take a [ai.rever.boss.plugin.api.WorkspaceDataProvider]
+     * as well, to read each workspace's saved layout - see [buildTabStructure] for why that is gone.
+     */
+    fun buildTree(activeTabs: List<ActiveTabData>): List<TabTreeNode> {
+        val rootNodes =
+            activeTabs.groupBy { it.workspaceId }.map { (workspaceId, tabs) ->
+                TabTreeNode.WorkspaceNode(
+                    id = "workspace-$workspaceId",
+                    name = tabs.firstOrNull()?.workspaceName ?: "Unknown",
+                    workspaceId = workspaceId,
+                    level = 0,
+                    tabStructure = buildTabStructure(tabs),
+                    tabCount = tabs.size
+                )
+            }
 
         // Sorted, NOT left in the order the tabs arrived in. The host emits the CURRENT
         // workspace's tabs first and the preserved ones after, so grouping in arrival order made
@@ -170,14 +105,12 @@ object TabTreeBuilder {
     /**
      * The pane a split section stands for, or null when the section is not one pane.
      *
-     * [buildTabStructure] wraps a `SinglePanel` leaf's tabs directly, so a section whose children
-     * are all [WorkspaceTabStructure.TabItem] is one pane and every one of those tabs carries its
-     * `panelId`. A section whose children are further sections is a CONTAINER for a nested split:
-     * it has no pane of its own, no tab it is currently showing, and therefore nothing to collapse
-     * to - which is why the panel never collapses one.
-     *
-     * Null also for an empty section, and for the (impossible-by-construction, cheap-to-check)
-     * case of one section holding tabs from two panes.
+     * [buildTabStructure] now emits one section per pane and never nests, so in practice this
+     * answers for every section it is given. The other branches are kept because the renderer is
+     * written against the sealed type rather than against that promise: a section holding further
+     * sections has no pane of its own and nothing to collapse to, an empty one has no tab to take
+     * an id from, and one holding tabs from two panes is impossible by construction and cheap to
+     * check for.
      */
     fun paneIdOf(children: List<WorkspaceTabStructure>): String? {
         if (children.isEmpty()) return null

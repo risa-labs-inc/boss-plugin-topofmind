@@ -129,7 +129,7 @@ private fun TabTree(
     val currentWorkspaceId = workspaceDataProvider?.currentWorkspace?.collectAsState()?.value?.id
     val transferSupported = remember(activeTabsProvider) { TabTransfer.isSupported(activeTabsProvider) }
 
-    val treeNodes = remember(activeTabs) { TabTreeBuilder.buildTree(activeTabs, workspaceDataProvider) }
+    val treeNodes = remember(activeTabs) { TabTreeBuilder.buildTree(activeTabs) }
     // Keyed on the current workspace as well as the tree: the default now says "the workspace on
     // screen is open, the rest are closed", so a switch that changes nothing else still has to
     // re-derive it. Re-running this is idempotent, and it never overrules an explicit toggle.
