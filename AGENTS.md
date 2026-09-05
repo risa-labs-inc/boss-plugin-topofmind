@@ -358,8 +358,14 @@ through the same `switchToWorkspace` the workspace headers use.
     items fed bottom-first. That worked and cost the list its top anchor: with more floors than fit,
     a reversed list starts scrolled to the BOTTOM, and the top floor lost its back edge off the top
     of the viewport. Sliding up has no such trade.
-  - **The TOP floor's band is a whole `SLAB_HEIGHT`.** Nothing is stacked on it, so it is the one
-    storey that shows its back edge, and giving it a short band is exactly the bug above.
+  - **Two storeys STAND FREE: the top one and the selected one.** Both get a full slab of band and
+    no clip, so their whole slab shows - back edge, plate corner and all. The top one because
+    nothing is above it; the selected one because the workspace you are in is the one whose panes
+    are worth reading, and it was arriving half-tucked under its neighbour with its accent outline
+    cut off at the corner. It is lifted by making ROOM, never by drawing over the storey above: a
+    lower slab painted on top would cover the face carrying that workspace's name, and a building
+    does not work that way either. The cost is that the stack is `FLOOR_OVERLAP` taller while the
+    selection is not the top floor, which the `heightIn` cap absorbs.
 - **Hit-testing is per floor BAND, not per parallelogram.** Selection is per workspace, so the
   fixed-height `Box` takes the click and the `Canvas` inside it only draws. Inverting the projection
   on every press would buy a hit test nobody could tell apart from this one.
