@@ -40,7 +40,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -411,6 +411,10 @@ internal fun WorkspaceFloors(
                     // included. The selected floor does too, by standing clear. Every other floor
                     // draws only the part the storey above does not cover.
                     isTop = index == 0,
+                    isBottom = index == workspaces.lastIndex,
+                    belowStandsFree =
+                        index < workspaces.lastIndex &&
+                            workspaces[index + 1].workspaceId == currentWorkspaceId,
                     isCurrent = currentWorkspaceId == node.workspaceId,
                     activePanelId = activePanelId,
                     onClick = { onSelectWorkspace(node.workspaceId) },
@@ -439,6 +443,9 @@ private fun Floor(
     node: TabTreeNode.WorkspaceNode,
     metrics: FloorMetrics,
     isTop: Boolean,
+    isBottom: Boolean,
+    /** The storey BELOW stands free, so its plate begins a whole slab down rather than a pitch. */
+    belowStandsFree: Boolean,
     isCurrent: Boolean,
     activePanelId: String?,
     onClick: () -> Unit,
@@ -503,8 +510,7 @@ private fun Floor(
         // projection on every press would buy a hit test nobody can tell apart from this one.
         //
         // A full slab tall for a storey that STANDS FREE and one pitch for the rest, which is what
-        // the overlap costs each of them. The clip that makes it an overlap is inside the Canvas
-        // and is a SHAPE, not this rectangle - see `covered` there.
+        // the overlap costs each of them. The clip that makes it an overlap is inside the Canvas.
         modifier =
             Modifier
                 .fillMaxWidth()
@@ -589,69 +595,55 @@ private fun Floor(
                     drawPath(plate, outline, style = Stroke(width = stroke))
                 }
 
+                // Where this storey's SIDE face ends: on the plate edge of the storey below, so
+                // that the right of the building is one wall with a slanted seam at every plate
+                // edge, and the storey below hangs its own side face from that same edge.
+                //
+                // That is `pitch` down when the storey below is tucked under this one, a whole slab
+                // when it stands free, and just the riser for the bottom floor, which has nothing
+                // to reach. For every floor but the bottom it is deeper than the front face - and
+                // that extra depth is exactly the wedge that used to show. Identical boxes stacked
+                // with no gap hide each other's top faces, so a lower plate that shows at all is
+                // sitting where the box above's underside should be, and its back-right corner
+                // poked out to the right of the face above with nothing over it. The wall covers
+                // it, in this storey's colour rather than as a column belonging to the one below:
+                // a column made the lower floor read as a tray under a box, where a wall reaching
+                // the next plate edge reads as a box standing on a slab.
+                val sideDrop =
+                    when {
+                        isBottom -> riser
+                        belowStandsFree -> size.height
+                        else -> metrics.pitch.toPx()
+                    }
+                val side =
+                    quad(
+                        backRight,
+                        frontRight,
+                        Offset(frontRight.x, frontRight.y + sideDrop),
+                        Offset(backRight.x, backRight.y + sideDrop),
+                    )
+
+                // Faces first, so the plate lands on top of them. A vertical extrusion stays vertical
+                // in this projection, which is why both are a straight drop.
+                drawPath(front, riserFront)
+                drawPath(side, riserSide)
+
                 if (isTop) {
-                    // The one storey with nothing above it, so the one drawn as a whole box: two
-                    // vertical faces first, so the plate lands on top of them - a vertical extrusion
-                    // stays vertical in this projection, so these are a straight drop - and the
-                    // plate's slanted right edge is the real top of the column.
-                    val side = quad(backRight, frontRight, dropped(frontRight), dropped(backRight))
-                    drawPath(front, riserFront)
-                    drawPath(side, riserSide)
                     drawPlate()
-                    drawPath(front, outline, style = Stroke(width = stroke))
-                    drawPath(side, outline, style = Stroke(width = stroke))
-                    return@Canvas
+                } else {
+                    // Only what the storey above leaves showing, which is a RECTANGLE now: the face
+                    // above ends level at `topLine` across the plate's width, and everything right of
+                    // that is under the wall above, down to this plate's own right edge. The corner
+                    // that lived there is what the wall exists to cover, so this plate does not draw
+                    // it. `topLine` is `overlap` when tucked, level with the top when standing free.
+                    val topLine = if (standsFree) 0f else overlapPx
+                    clipRect(left = 0f, top = topLine, right = plateWidth, bottom = size.height) {
+                        drawPlate()
+                    }
                 }
 
-                // A storey with another one above it. Where that storey's slab ENDS, in these
-                // coordinates: `overlap` down when this one is tucked under it, level with the top
-                // when this one stands free. Its front face ends there, flat; its side face ends
-                // on a line that climbs a whole plate-depth from there to the far right.
-                val topLine = if (standsFree) 0f else overlapPx
-
-                // Only what the storey above leaves showing. The plate is clipped to it because the
-                // part above is under that storey's faces, which are already drawn and must not be
-                // painted over.
-                val covered =
-                    Path().apply {
-                        moveTo(0f, topLine)
-                        lineTo(plateWidth, topLine)
-                        lineTo(size.width, topLine - depth)
-                        lineTo(size.width, size.height)
-                        lineTo(0f, size.height)
-                        close()
-                    }
-                drawPath(front, riserFront)
-                clipPath(covered) { drawPlate() }
-
-                // The COLUMN. This storey's side face, run UP from its own bottom edge to where the
-                // side face above ends, so the two meet on a shared edge and the right of the
-                // building is one continuous face from the top plate down.
-                //
-                // Drawn AFTER the plate, deliberately, and this is what fixes the wedge. Identical
-                // boxes stacked with no gap hide each other's top faces exactly, so showing any of
-                // a lower plate means that plate is where the box above's underside should be -
-                // and its back-right corner then pokes out to the right of the face above, under
-                // the side face's slanted bottom edge, where nothing covers it. In a real building
-                // that corner is inside the column. So the column is drawn over it: the plate keeps
-                // its whole front strip, and its right end is the column's vertical edge rather
-                // than a corner sticking out of the wall.
-                val columnTop = Offset(size.width, topLine - depth)
-                val columnLeft = Offset(plateWidth, topLine)
-                val column = quad(columnTop, columnLeft, dropped(frontRight), dropped(backRight))
-                drawPath(column, riserSide)
-                // Three edges, not four: the top one is the storey above's bottom edge and already
-                // carries that storey's outline, which may be the accent. Stroking it again here
-                // would paint a plain border over a selected floor's outline.
-                val columnEdges =
-                    Path().apply {
-                        moveTo(columnLeft.x, columnLeft.y)
-                        lineTo(plateWidth, size.height)
-                        lineTo(size.width, riser)
-                        lineTo(columnTop.x, columnTop.y)
-                    }
-                drawPath(columnEdges, outline, style = Stroke(width = stroke))
                 drawPath(front, outline, style = Stroke(width = stroke))
+                drawPath(side, outline, style = Stroke(width = stroke))
             }
 
             // On the FRONT FACE, under the plate. `at(0f, 1f)` puts that face's left edge at the
