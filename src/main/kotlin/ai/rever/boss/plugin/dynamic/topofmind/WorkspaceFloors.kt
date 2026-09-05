@@ -83,20 +83,33 @@ private val FLOORS_TOP_GAP = 8.dp
  * storey taller every time a workspace opened would push the tree out of the panel one row at a
  * time.
  *
- * The storeys scale to fit instead: see [floorMetricsFor]. Above roughly seven floors they hit
- * their minimum and the stack scrolls rather than shrinking into slivers.
+ * The SLABS scale to fit instead - the bite between them is a constant. See [floorMetricsFor].
+ * Above about five floors they hit their minimum and the stack scrolls rather than shrinking into
+ * slivers.
  */
 internal val FLOORS_HEIGHT = 140.dp
 
 /**
- * A floor's PITCH as a fraction of its slab - the repeat distance between two storeys.
+ * How far a storey bites into the one below it. A CONSTANT, where the slab is not.
  *
- * 0.7 means each storey buries 30% of itself in the one below, which is half its plate at
- * [RISER_SHARE]. Half the plate is what closes most of the `SKEW`-wide step in the left silhouette
- * (see [FloorMetrics.overlap]) while leaving the other half of the plate showing, which is what
- * carries the panes.
+ * A fraction of the slab was the other option, and it makes the bite grow with the storeys -
+ * deepest exactly when there are two workspaces and the plates are largest and most worth seeing.
+ * A constant is also the thing a reader can hold onto: the storeys resize, the join between them
+ * does not.
+ *
+ * 12dp closes most of the `SKEW`-wide step in the left silhouette (see [FloorMetrics.overlap]) at
+ * the slab sizes a window actually reaches, and leaves the rest of the plate carrying panes.
  */
-private const val PITCH_SHARE = 0.7f
+private val FLOOR_OVERLAP = 12.dp
+
+/**
+ * The most of a plate the bite may take, whatever [FLOOR_OVERLAP] says.
+ *
+ * A constant bite is only constant while there is a plate to take it out of. At [MIN_SLAB] the
+ * plate is about 14dp, and 12 of that would leave a sliver with nothing readable on it - so past
+ * this fraction the bite gives way rather than the plate.
+ */
+private const val MAX_OVERLAP_OF_PLATE = 0.55f
 
 /** The share of a slab given to the face that carries the name; the plate takes the rest. */
 private const val RISER_SHARE = 0.4f
@@ -113,14 +126,12 @@ internal val MAX_SLAB = 56.dp
 /** Two storeys that near cannot both show a name, so the stack scrolls instead. */
 internal val MIN_PITCH = 18.dp
 
-/** With few floors the pitch would otherwise stretch to fill the height and stop reading as one building. */
-private val MAX_FLOOR_GAP = 10.dp
-
 /**
  * Room between the plate's edge and the name, and the shape of one storey, for a given floor count.
  *
- * Everything here used to be a constant, and a stack of six workspaces was simply six times as tall
- * as one. [FLOORS_HEIGHT] is what is fixed now; the storeys divide it.
+ * The slab used to be a constant, and a stack of six workspaces was simply six times as tall as one.
+ * [FLOORS_HEIGHT] is what is fixed now, and the SLAB is what gives: the bite between two storeys
+ * ([FLOOR_OVERLAP]) is the same wherever it is.
  *
  * @property slab one storey, top of plate to bottom of face - what a floor DRAWS.
  * @property pitch the repeat distance between two storeys - what a floor OCCUPIES. Smaller than
@@ -133,13 +144,13 @@ internal data class FloorMetrics(
     val riser: Dp,
 ) {
     /**
-     * How far a storey bites into the one below it.
+     * How far this storey bites into the one below it: [FLOOR_OVERLAP], less any clamp.
      *
      * The step left in the left silhouette at a seam is `(plate - overlap) / plate * SKEW`, because
-     * the plate's left edge travels the whole skew over the whole plate depth. Overlapping by half
-     * the plate halves that step. Closing it entirely means overlapping by the WHOLE plate -
-     * identical boxes stacked with no gap hide each other's top faces exactly - which is the version
-     * with no panes visible below the top floor, and the panes are what this view is for.
+     * the plate's left edge travels the whole skew over the whole plate depth. Closing it entirely
+     * means biting the WHOLE plate - identical boxes stacked with no gap hide each other's top faces
+     * exactly - which is the version with no panes visible below the top floor, and the panes are
+     * what this view is for.
      */
     val overlap: Dp get() = (slab - pitch).coerceAtLeast(0.dp)
 }
@@ -147,29 +158,30 @@ internal data class FloorMetrics(
 /**
  * The shape of a storey in a stack of [count], sized so the whole stack is [FLOORS_HEIGHT] tall.
  *
- * `height = slab + (count - 1) * pitch`, since the top floor shows a whole slab and every other one
- * shows a pitch. Solving that for an ideal slab gives the first line; the clamps are what stop the
- * two ends being absurd, and each of them trades the fixed height away deliberately:
+ * `height = slab + (count - 1) * pitch` with `pitch = slab - FLOOR_OVERLAP`, since the top floor
+ * shows a whole slab and every other one shows a pitch. Solving that for the slab is the first line.
  *
- * - **[MAX_SLAB]**: two workspaces would otherwise draw two 80dp slabs. The stack is then SHORTER
- *   than [FLOORS_HEIGHT], and the tree gets the difference, which is the better answer.
- * - **[MIN_SLAB] / [MIN_PITCH]**: past roughly seven floors the storeys would be slivers and two
- *   faces would overlap so far that neither name is readable. The stack is then TALLER than
- *   [FLOORS_HEIGHT] and scrolls inside it.
+ * The height is exact while no clamp bites, which is three to five workspaces. Each clamp trades it
+ * away deliberately, and the DIRECTION is the part that matters:
+ *
+ * - **[MAX_SLAB]**: one or two workspaces would otherwise draw 70-80dp slabs. The stack is then
+ *   SHORTER than [FLOORS_HEIGHT] and the tree gets the difference, which is the better answer -
+ *   holding the full height empty would take room from the thing this panel is mostly for.
+ * - **[MIN_SLAB] / [MIN_PITCH] / [MAX_OVERLAP_OF_PLATE]**: past about five floors the storeys would
+ *   be slivers and two faces would overlap so far that neither name is readable. The stack is then
+ *   TALLER than [FLOORS_HEIGHT] and scrolls inside it, rather than shrinking into nothing.
  * - **[MIN_RISER]**: a face has to hold an 11sp name whatever the slab is, so the plate gives way
  *   first. At the minimum slab that is a 14dp plate, which still shows a two- or four-way split.
  */
 internal fun floorMetricsFor(count: Int): FloorMetrics {
-    val ideal = FLOORS_HEIGHT / (PITCH_SHARE * count + (1f - PITCH_SHARE))
+    // height = count * slab - (count - 1) * FLOOR_OVERLAP, solved for the slab.
+    val ideal = (FLOORS_HEIGHT + FLOOR_OVERLAP * (count - 1).toFloat()) / count.toFloat()
     val slab = ideal.coerceIn(MIN_SLAB, MAX_SLAB)
-    val pitch =
-        if (count > 1) {
-            ((FLOORS_HEIGHT - slab) / (count - 1)).coerceIn(MIN_PITCH, slab + MAX_FLOOR_GAP)
-        } else {
-            slab
-        }
     val riser = (slab * RISER_SHARE).coerceAtLeast(MIN_RISER)
-    return FloorMetrics(slab = slab, pitch = pitch, plate = slab - riser, riser = riser)
+    val plate = slab - riser
+    val overlap = FLOOR_OVERLAP.coerceAtMost(plate * MAX_OVERLAP_OF_PLATE)
+    val pitch = (slab - overlap).coerceAtLeast(MIN_PITCH)
+    return FloorMetrics(slab = slab, pitch = pitch, plate = plate, riser = riser)
 }
 
 /**
