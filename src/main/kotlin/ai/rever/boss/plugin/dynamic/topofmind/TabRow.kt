@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Tab
 import androidx.compose.material.icons.outlined.Terminal
@@ -284,27 +285,56 @@ internal fun TabGlyph(
     activeTabsProvider: ActiveTabsProvider,
 ) {
     val favicon = activeTabsProvider.loadFavicon(tab.faviconCacheKey)
-    val fallback = activeTabsProvider.getFallbackIcon(tab.typeId)
     val modifier = Modifier.size(ROW_ICON)
 
     when {
         // A real favicon keeps the site's own colours, so it is an Image and never tinted.
         favicon != null -> Image(painter = favicon, contentDescription = null, modifier = modifier)
-        fallback != null ->
-            Icon(
-                imageVector = fallback,
-                contentDescription = null,
-                modifier = modifier,
-                tint = tabIconTint(tab.typeId),
-            )
         else ->
             Icon(
-                imageVector = tabIcon(tab.typeId),
+                imageVector = fallbackIcon(tab, activeTabsProvider),
                 contentDescription = null,
                 modifier = modifier,
-                tint = tabIconTint(tab.typeId),
+                // NO tint argument, which is the point. Icon defaults to LocalContentColor, so the
+                // glyph takes the row's own colour and dims with the title exactly as the tab bar's
+                // does. This used to hand every type its own colour - an accent for browsers, green
+                // for terminals - which the bar does not do: it tints only when the TAB supplies a
+                // tint of its own, and a panel cannot see that. Inventing one made a list of tabs
+                // read as a legend.
             )
     }
+}
+
+/**
+ * The glyph for a tab with no favicon.
+ *
+ * `getFallbackIcon` answers by TYPE, which is right for a terminal or an editor and wrong for the
+ * one browser tab that is not showing a site: on the home page the host's own tab swaps its globe
+ * for a house (`FluckTabInfo.icon`, gated on `isHomeUrl`). A panel reading `ActiveTabData` cannot
+ * see that decision - it gets a url and a type id - so it repeats the same test rather than
+ * showing a globe for a tab the rest of the app calls Home.
+ */
+@Composable
+private fun fallbackIcon(
+    tab: ActiveTabData,
+    activeTabsProvider: ActiveTabsProvider,
+): ImageVector =
+    when {
+        isHomeUrl(tab) -> Icons.Outlined.Home
+        else -> activeTabsProvider.getFallbackIcon(tab.typeId) ?: tabIcon(tab.typeId)
+    }
+
+/**
+ * The host's `FluckTabInfo.isHomeUrl`, repeated because it is not exposed.
+ *
+ * Only for a browser tab: a terminal whose url is null is not on a home page, it has no url at all.
+ */
+private fun isHomeUrl(tab: ActiveTabData): Boolean {
+    val isBrowser =
+        tab.typeId.contains("fluck", ignoreCase = true) || tab.typeId.contains("browser", ignoreCase = true)
+    if (!isBrowser) return false
+    val url = tab.url
+    return url == null || url.isBlank() || url == "about:blank"
 }
 
 /**
@@ -351,23 +381,6 @@ internal fun tabIcon(typeId: String): ImageVector =
         typeId.contains("terminal", ignoreCase = true) -> Icons.Outlined.Terminal
         typeId.contains("editor", ignoreCase = true) -> Icons.Outlined.Code
         else -> Icons.Outlined.Tab
-    }
-
-/**
- * Tint for a fallback glyph.
- *
- * Theme tokens, not the per-type literals this used to carry (a Google blue, a terminal green, an
- * editor red). Those were fixed values chosen against one dark theme and they do not survive a
- * theme switch, which every other colour here now does.
- */
-@Composable
-internal fun tabIconTint(typeId: String): Color =
-    when {
-        typeId.contains("browser", ignoreCase = true) || typeId.contains("fluck", ignoreCase = true) ->
-            BossThemeColors.AccentColor
-        typeId.contains("terminal", ignoreCase = true) -> BossThemeColors.SuccessColor
-        typeId.contains("editor", ignoreCase = true) -> BossThemeColors.SecondaryColor
-        else -> BossThemeColors.TextSecondary
     }
 
 /**
