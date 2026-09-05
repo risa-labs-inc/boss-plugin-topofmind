@@ -29,8 +29,24 @@ workspace on screen is one row in it.
 - **Collapsible groups** with tab counts. The workspace on screen starts expanded and every other
   one starts collapsed; split sections start collapsed. Open or close a group yourself and it stays
   the way you left it for the rest of the session, switching workspaces included.
+- **Close everything under a header**, workspace or split section, after a confirm that names what
+  it is about to close and how many.
 - **A workspace-actions footer** pinned under the tree, mirroring the menu the host hangs off the
   foot of its vertical tab bar.
+
+## Closing a group of tabs
+
+Every workspace header and every split-section header carries a close button, styled like the tab
+bar's own pane-header actions. It closes the tabs drawn under that header.
+
+- **It always asks first**, through the host's confirmation dialog, and the message names the group
+  and the exact number of tabs. Closing a dozen running things is not a click you can take back.
+- **The number is what is on screen.** With a search active the tree is filtered, so the confirm
+  counts and closes the rows you can actually see - not every tab the workspace owns.
+- **It reaches workspaces that are not on screen.** The host's close resolves a tab anywhere, so
+  clearing a workspace you are not currently in does not first switch to it.
+- **No dialog provider, no button.** If `genericDialogProvider` is absent there is nothing to
+  confirm with, and the close action is not drawn rather than being offered without a question.
 
 ## Moving a tab
 
@@ -96,6 +112,8 @@ general-purpose tab surface for agents, which is broader than the panel's name s
   drag still works.
 - `filePickerProvider` and `genericDialogProvider` drive the footer's actions. Each button is hidden
   when the provider it needs is absent, so the footer shrinks rather than lying.
+  `genericDialogProvider` also gates the headers' close buttons, for the same reason: it is the
+  thing that asks.
 - Out-of-process: the move is in-process only, so the panel hides the affordance rather than
   offering one that does nothing. It probes `supportsTabTransfer` and believes the answer.
 - No external binaries.

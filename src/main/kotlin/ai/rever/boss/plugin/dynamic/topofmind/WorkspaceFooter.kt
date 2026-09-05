@@ -66,11 +66,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-// The panel's own control metrics: a 32dp target like a tab row, the 4dp radius the panel's other
-// buttons use, and a 14dp bare icon in textSecondary. See TabRow.kt.
+// The host's own sidebar action button, to the dp, because these sit in the same column as it.
+//
+// A 32dp target (`SIDEBAR_ICON_SIZE` in the host's FocusModeQuickActions) around a 20dp glyph
+// (`BossActionButton`'s `iconSize` default, with its 2dp content padding). The glyph was 14dp,
+// which is a tab row's bare icon rather than a footer button's, and next to the host's own action
+// row these read as a smaller class of control than the one they sit beside. The 4dp radius and
+// the hover fill are unchanged.
 private val ACTION_SIZE = 32.dp
 private val ACTION_RADIUS = RoundedCornerShape(4.dp)
-private val ACTION_ICON = 14.dp
+private val ACTION_ICON = 20.dp
 
 // Matches the host's own foot (HostActionsFlowRow): 4dp between icons, 6dp of air above and below,
 // 8dp either side.

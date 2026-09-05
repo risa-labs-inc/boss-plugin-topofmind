@@ -156,6 +156,24 @@ private fun TabTree(
         }
     }
 
+    // Closing a whole header's worth of tabs, or NOT OFFERING IT. Every close action in the tree
+    // hangs off this one lambda, and it is null when there is no `genericDialogProvider` - so a
+    // host that cannot raise a confirm shows no close button rather than a button that destroys a
+    // dozen tabs on one click with nothing to undo it.
+    //
+    // The message is composed at the call site, because only the header knows what it is about to
+    // close; the title, the destructive styling, the close loop and the refresh are here, so every
+    // one of these asks the same question the same way.
+    val dialogs = genericDialogProvider
+    val closeTabs: ((String, List<ActiveTabData>) -> Unit)? =
+        if (dialogs == null) {
+            null
+        } else {
+            { message: String, tabs: List<ActiveTabData> ->
+                confirmAndCloseTabs(tabs, message, dialogs, activeTabsProvider, scope)
+            }
+        }
+
     // The panel's own position in the window. The drag reports the pointer in window coordinates
     // (a row and a workspace header share no parent, so nothing else is comparable), and the ghost
     // is placed inside this Box - so one of the two has to be converted, and this is the only place
@@ -227,6 +245,7 @@ private fun TabTree(
                             transferSupported = transferSupported,
                             scope = scope,
                             onMove = ::moveTab,
+                            onCloseTabs = closeTabs,
                         )
                     }
                 }
@@ -281,11 +300,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
     transferSupported: Boolean,
     scope: CoroutineScope,
     onMove: (ActiveTabData, String) -> Unit,
+    onCloseTabs: ((String, List<ActiveTabData>) -> Unit)?,
 ) {
     if (node !is TabTreeNode.WorkspaceNode) return
 
     item(key = node.id) {
         val expanded by treeState.expandedWorkspaces.collectAsState()
+        // What is UNDER this header right now, not every tab the workspace owns: a search has
+        // already trimmed the structure, and the confirm names this count.
+        val tabs = remember(node.tabStructure) { TabTreeBuilder.tabsIn(node.tabStructure) }
         WorkspaceHeader(
             node = node,
             isExpanded = node.workspaceId in expanded,
@@ -296,6 +319,17 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
             onActivate = {
                 switchToWorkspace(node.workspaceId, workspaceDataProvider, splitViewOperations, scope)
             },
+            onCloseAll =
+                onCloseTabs?.takeIf { tabs.isNotEmpty() }?.let { close ->
+                    {
+                        close(
+                            "Close ${tabCountPhrase(tabs.size)} in \"${node.name}\"? " +
+                                "Tabs close in that workspace whether or not it is on screen, " +
+                                "and this cannot be undone.",
+                            tabs,
+                        )
+                    }
+                },
         )
     }
 
@@ -306,6 +340,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
                 TabStructure(
                     structure = node.tabStructure,
                     workspaceId = node.workspaceId,
+                    workspaceName = node.name,
                     depth = 0,
                     currentWorkspaceId = currentWorkspaceId,
                     allTabs = allTabs,
@@ -316,6 +351,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
                     dragState = dragState,
                     transferSupported = transferSupported,
                     onMove = onMove,
+                    onCloseTabs = onCloseTabs,
                 )
             }
         }
@@ -327,6 +363,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
 private fun TabStructure(
     structure: List<WorkspaceTabStructure>,
     workspaceId: String,
+    workspaceName: String,
     depth: Int,
     currentWorkspaceId: String?,
     allTabs: List<ActiveTabData>,
@@ -337,6 +374,7 @@ private fun TabStructure(
     dragState: TabDragState?,
     transferSupported: Boolean,
     onMove: (ActiveTabData, String) -> Unit,
+    onCloseTabs: ((String, List<ActiveTabData>) -> Unit)?,
     sectionPath: String = "",
 ) {
     val expandedSections by treeState.expandedSections.collectAsState()
@@ -369,18 +407,34 @@ private fun TabStructure(
                 val path = if (sectionPath.isEmpty()) item.sectionName else "$sectionPath/${item.sectionName}"
                 val key = "$workspaceId:$path"
                 val isExpanded = key in expandedSections
+                // The whole subtree, not just this section's direct children: a nested split's
+                // tabs belong to the section above it too, and closing "Left" has to mean the
+                // rows drawn under "Left". Collapsed or not - a collapsed section is exactly the
+                // one you want to clear without opening it first.
+                val tabs = remember(item.children) { TabTreeBuilder.tabsIn(item.children) }
 
                 SplitSectionHeader(
                     sectionName = item.sectionName,
                     indentDp = INDENT_STEP * (depth + 1),
                     isExpanded = isExpanded,
                     onToggleExpansion = { treeState.toggleSectionExpansion(key) },
+                    onCloseAll =
+                        onCloseTabs?.takeIf { tabs.isNotEmpty() }?.let { close ->
+                            {
+                                close(
+                                    "Close ${tabCountPhrase(tabs.size)} in the ${item.sectionName} " +
+                                        "split of \"$workspaceName\"? This cannot be undone.",
+                                    tabs,
+                                )
+                            }
+                        },
                 )
 
                 if (isExpanded) {
                     TabStructure(
                         structure = item.children,
                         workspaceId = workspaceId,
+                        workspaceName = workspaceName,
                         depth = depth + 1,
                         currentWorkspaceId = currentWorkspaceId,
                         allTabs = allTabs,
@@ -391,11 +445,59 @@ private fun TabStructure(
                         dragState = dragState,
                         transferSupported = transferSupported,
                         onMove = onMove,
+                        onCloseTabs = onCloseTabs,
                         sectionPath = path,
                     )
                 }
             }
         }
+    }
+}
+
+/**
+ * "1 tab" or "all 7 tabs".
+ *
+ * The count is the one the caller is actually about to close, not the header's own tab count -
+ * under a search those differ, and a confirm that promises a different number from the one it
+ * closes is worse than no confirm at all.
+ */
+private fun tabCountPhrase(count: Int): String = if (count == 1) "1 tab" else "all $count tabs"
+
+/**
+ * Ask, then close a group of tabs.
+ *
+ * The confirm is the HOST's ([GenericDialogProvider.showConfirmationDialog]), for the reasons the
+ * footer's prompts are: it is a suspend call that returns the answer, so there is no dialog state
+ * to hold, and the host is the only party that can guarantee a modal lands in FRONT of a
+ * hardware-composited browser surface. Marked destructive, because it is.
+ *
+ * [tabs] is a snapshot taken when the header composed, and is used verbatim after the dialog
+ * returns. That is deliberate: the tree is rebuilt roughly every 2s and would otherwise change
+ * under an open dialog, so what gets closed is what the user was looking at when they asked.
+ *
+ * `closeTab` reaches tabs in workspaces that are not on screen (the host's `closeTabAnywhere`), so
+ * this works on a workspace you are not currently in.
+ */
+private fun confirmAndCloseTabs(
+    tabs: List<ActiveTabData>,
+    message: String,
+    dialogs: GenericDialogProvider,
+    activeTabsProvider: ActiveTabsProvider,
+    scope: CoroutineScope,
+) {
+    if (tabs.isEmpty()) return
+    scope.launch {
+        val confirmed =
+            dialogs.showConfirmationDialog(
+                title = "Close Tabs",
+                message = message,
+                confirmText = "Close",
+                isDestructive = true,
+            )
+        if (!confirmed) return@launch
+        tabs.forEach { activeTabsProvider.closeTab(it.tabId) }
+        // Same as the move: do not wait on the host's 2s poll to notice the rows are gone.
+        activeTabsProvider.refreshTabs()
     }
 }
 
