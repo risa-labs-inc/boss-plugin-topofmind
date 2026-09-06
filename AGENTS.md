@@ -347,6 +347,14 @@ through the same `switchToWorkspace` the workspace headers use.
   never much height for a toggle to hand back. There is no rule BELOW it either: a line under the
   block read as ground it was standing on rather than as the top of the footer, so
   `WorkspaceActionsFooter` draws none.
+- **The scrollbar is pinned visible, where the panel default fades in on a scroll.** The stack is a
+  fixed height with no other edge to it, so a hidden scrollbar left no way to tell a stack of four
+  floors from the top four of nine - the block looked complete either way. Safe to pin because
+  `lazyListScrollbar` already refuses to draw when the content fits its viewport, so a window with
+  three workspaces shows nothing; setting `ScrollbarConfig.alpha` to a non-null value is exactly
+  what turns the fade off (`alpha ?: if (isScrolling) 0.8f else 0f`). **It is an indicator, not a
+  control**: that modifier is `drawWithContent` with no pointer input, so the thumb cannot be
+  dragged. Scrolling the stack means the wheel, or clicking a floor.
 - **A workspace that has just opened is scrolled into view.** It is appended to the bottom (see
   `WorkspaceArrival`), so past the four or so floors that fit it opens BELOW the fold and the panel
   would answer a new workspace by showing nothing at all. Three things about the effect: the FIRST

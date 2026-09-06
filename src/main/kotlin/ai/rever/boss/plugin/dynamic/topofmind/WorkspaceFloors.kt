@@ -83,6 +83,14 @@ private val FLOORS_TOP_GAP = 8.dp
  */
 internal val FLOORS_HEIGHT = 140.dp
 
+/**
+ * How visible the floors scrollbar is, at rest and while scrolling alike.
+ *
+ * A little under the 0.8 the panel default animates to while scrolling: this one is always there,
+ * and a permanent mark wants to be quieter than one that appears in answer to a gesture.
+ */
+private const val FLOORS_SCROLLBAR_ALPHA = 0.7f
+
 /** Air between one floor and the next. Constant: the floors resize, the joins do not. */
 private val FLOOR_GAP = 3.dp
 
@@ -362,7 +370,17 @@ internal fun WorkspaceFloors(
                     .lazyListScrollbar(
                         listState = listState,
                         direction = Orientation.Vertical,
-                        config = getPanelScrollbarConfig(),
+                        // Pinned visible, where the panel default fades in on a scroll and out 1.5s
+                        // later. The stack is a fixed height with no other edge to it, so a hidden
+                        // scrollbar left no way to tell a stack of four floors from the top four of
+                        // nine - the block looked complete either way. It is the one mark that says
+                        // there is more building below.
+                        //
+                        // Safe to pin because `lazyListScrollbar` already refuses to draw when the
+                        // content fits its viewport, so a window with three workspaces still shows
+                        // nothing. Setting `alpha` to a non-null value is exactly what turns the
+                        // fade off: the modifier reads `alpha ?: if (isScrolling) 0.8f else 0f`.
+                        config = getPanelScrollbarConfig().copy(alpha = FLOORS_SCROLLBAR_ALPHA),
                     ),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
