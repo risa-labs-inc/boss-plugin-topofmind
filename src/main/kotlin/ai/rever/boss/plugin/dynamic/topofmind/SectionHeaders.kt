@@ -256,6 +256,28 @@ internal fun WorkspaceHeader(
 }
 
 /**
+ * Report this pane header's window bounds to [dragState] while it is composed.
+ *
+ * The twin of [workspaceDropTarget], and the same trap: the unregister is guarded on the bounds
+ * still being the ones this header reported, because a section that re-lays out disposes its old
+ * node AFTER the replacement has registered, and an unguarded removal would drop a live target.
+ */
+@Composable
+private fun Modifier.paneDropTarget(
+    target: TabDragState.PaneTarget,
+    dragState: TabDragState,
+): Modifier {
+    var bounds by remember(target) { mutableStateOf(Rect.Zero) }
+
+    DisposableEffect(target, bounds) {
+        if (bounds != Rect.Zero) dragState.registerPaneTarget(target, bounds)
+        onDispose { if (bounds != Rect.Zero) dragState.unregisterPaneTarget(target, bounds) }
+    }
+
+    return this.onGloballyPositioned { bounds = it.boundsInWindow() }
+}
+
+/**
  * Publish this header's bounds so a drag can hit-test against it.
  *
  * Bounds go in and out with the composition rather than being recomputed per drag: a scroll moves
@@ -342,9 +364,23 @@ internal fun SplitSectionHeader(
      * rather than two competing marks.
      */
     isActivePane: Boolean = false,
+    /**
+     * The pane this header stands for, and the drag in flight, or null for neither.
+     *
+     * Null when the section is a container rather than a pane, when there is no drag state to
+     * report to, or when the host cannot move tabs at all - the same three cases that leave
+     * [onToggleExpansion] null. A header that is not a pane has no pane id to be a target for.
+     */
+    paneTarget: TabDragState.PaneTarget? = null,
+    dragState: TabDragState? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+
+    // The accent border a workspace header uses for the same state, so a pane and a workspace
+    // answer a hovering drag the same way. Read here rather than passed in: the header knows which
+    // pane it is, and the alternative is threading one boolean per pane through the tree.
+    val isDropTarget = paneTarget != null && dragState?.hoveredPane == paneTarget
 
     // accentText, not AccentColor. The latter is the FILL token and lands under 4.5:1 as text on
     // the default theme; the host tints an active pane's header with signalText for that reason.
@@ -374,8 +410,19 @@ internal fun SplitSectionHeader(
                     .fillMaxWidth()
                     .height(HEADER_HEIGHT)
                     .clip(HEADER_RADIUS)
-                    .background(if (isHovered) BossColors.darkSurface else Color.Transparent)
-                    .hoverable(interactionSource)
+                    .background(
+                        when {
+                            isDropTarget -> BossThemeColors.AccentColor.copy(alpha = DROP_TARGET_FILL_ALPHA)
+                            isHovered -> BossColors.darkSurface
+                            else -> Color.Transparent
+                        },
+                    ).then(
+                        if (paneTarget != null && dragState != null) {
+                            Modifier.paneDropTarget(paneTarget, dragState)
+                        } else {
+                            Modifier
+                        },
+                    ).hoverable(interactionSource)
                     .then(
                         if (onToggleExpansion != null) Modifier.clickable(onClick = onToggleExpansion) else Modifier,
                     ).padding(start = indentDp.dp + HEADER_START, end = HEADER_END),

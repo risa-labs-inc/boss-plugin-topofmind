@@ -416,6 +416,36 @@ Three things to know:
 is the ONE definition of that: the section header's position glyph and the floors stack both read
 it, so a header and a storey cannot put one pane on two different sides.
 
+### Dropping on a pane, and springing a workspace open
+
+A drag names a WORKSPACE when it lands on a workspace header and a PANE when it lands on a split
+header. `TabDragState` keeps the two in separate maps and `endDrag` prefers the pane: it is the more
+precise answer to the same gesture. On screen they cannot both be under the pointer - a workspace
+target is its header row, a pane target is a split header further down - so the precedence is a
+stated rule, and `TabDragTargetTest` pins it with deliberately overlapping bounds because nothing
+else would notice if it flipped.
+
+- **A pane of the tab's OWN workspace is a target, where the workspace is not.** `hoveredWorkspaceId`
+  refuses the tab's own workspace, because a workspace-level move to where it already is does
+  nothing. A different PANE of that workspace is a real destination, and the only way to express it:
+  `moveTabToWorkspace` has to refuse a same-workspace move because without a pane it cannot tell one
+  from the other. `moveTabToPane` (api 1.0.88, host 9.5.9) is what carries it.
+- **Its own pane is never a target**, and the guard is on the PANE id, not the workspace id. With the
+  workspace id it would refuse every pane of the workspace the tab is in, which is exactly the case
+  the pane targets were added for.
+- **A pane with no tabs cannot be a drop target at all.** The tree is built from `ActiveTabData`, so
+  an empty pane contributes no id and draws no header. Dropping on the workspace header and letting
+  the host pick is the route to one.
+- **A section that stands for a nested split gets no pane target**, the same three cases that leave
+  its toggle null: it has no pane id to name.
+- **Hovering a collapsed workspace with a tab in hand opens it after 550ms.** Its panes only exist as
+  drop targets once the group is open, so without this a pane in a collapsed workspace could not be
+  reached without letting go first. The delay is what makes dragging PAST a header free - an ordinary
+  drag crosses every header between the tab and its destination, and opening each one would reflow
+  the tree under the pointer. It only ever OPENS: a group that closed again when the pointer left
+  would take with it the panes that were the reason to open it. The timer re-checks the pointer and
+  the drag after the wait, since either may have moved on.
+
 ### The headers
 
 `SectionHeaders.kt` draws both header rows, and the split-section one is the host's pane group
