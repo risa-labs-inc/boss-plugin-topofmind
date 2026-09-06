@@ -66,6 +66,8 @@ fun TopOfMindContent(
     dragState: TabDragState,
     paneExpansion: SplitPaneExpansion,
     panelDialogs: PanelDialogState,
+    /** Which workspace opened last, so it is the bottom row. See [WorkspaceArrival]. */
+    workspaceArrival: WorkspaceArrival,
     windowId: String?,
     scope: CoroutineScope,
 ) {
@@ -92,6 +94,7 @@ fun TopOfMindContent(
                 dragState = dragState,
                 paneExpansion = paneExpansion,
                 panelDialogs = panelDialogs,
+                workspaceArrival = workspaceArrival,
                 windowId = windowId,
                 scope = scope,
             )
@@ -108,6 +111,7 @@ private fun TabTree(
     contextMenuProvider: ContextMenuProvider?,
     filePickerProvider: FilePickerProvider?,
     genericDialogProvider: GenericDialogProvider?,
+    workspaceArrival: WorkspaceArrival,
     treeState: TabTreeState,
     dragState: TabDragState,
     paneExpansion: SplitPaneExpansion,
@@ -132,7 +136,7 @@ private fun TabTree(
     val savedWorkspaces = workspaceDataProvider?.workspaces?.collectAsState()?.value.orEmpty()
     val treeNodes =
         remember(activeTabs, savedWorkspaces) {
-            TabTreeBuilder.buildTree(activeTabs, workspaceDataProvider)
+            TabTreeBuilder.buildTree(activeTabs, workspaceDataProvider, workspaceArrival)
         }
     // Keyed on the current workspace as well as the tree: the default now says "the workspace on
     // screen is open, the rest are closed", so a switch that changes nothing else still has to

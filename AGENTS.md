@@ -99,14 +99,29 @@ TabTreeType             tree node types
 - **`activeTabs` arrives current-workspace-first.** The host's `collectAllActiveTabs` emits the
   current workspace's tabs and then the preserved ones, so a plain `groupBy { it.workspaceId }`
   ordered the groups by arrival and every workspace jumped to the top of the panel the moment you
-  switched to it. `TabTreeBuilder.workspaceOrder` sorts by `LayoutWorkspace.timestamp`, oldest
-  first, so the newest workspace is the bottom row and a row's position never depends on which
-  workspace is current. That timestamp is when the workspace was last WRITTEN - the only clock the
-  api offers, since `ActiveTabData` carries no time and the ids are names (`workspace-claude-code`)
-  rather than the `workspace-<epoch millis>` `generateId` produces - so saving a workspace moves it
-  down. A workspace absent from `workspaces` has never been saved, which makes it the newest thing
-  there is, and it sorts to the bottom. Name then id break ties, so two workspaces written in the
-  same millisecond never swap places between rebuilds.
+  switched to it. `WorkspaceArrival` answers "when did this start running HERE" instead: a workspace
+  takes the next free slot the first time it is seen and keeps it, so the one you just opened is the
+  bottom row and nothing already in the list moves when it lands.
+- **The arrival order is SEEDED, not invented.** The first sighting is a whole set arriving at once -
+  everything the window was already running when the panel mounted - and their order is not knowable
+  from inside it. `TabTreeBuilder.seedOrder` supplies it: `LayoutWorkspace.timestamp` oldest first,
+  name then id as tie-breaks. That timestamp is when a workspace was last WRITTEN, which is the only
+  clock the api offers, since `ActiveTabData` carries no time and the ids are names
+  (`workspace-claude-code`) rather than the `workspace-<epoch millis>` `generateId` produces.
+  - Seeding is all it is good for. It was the WHOLE ordering once, and it answers the wrong
+    question: opening a workspace saved months ago dropped it into the middle of the list at its
+    save-time position, and workspaces sharing a timestamp fell through to the name tie-break and
+    came out alphabetical.
+  - What must NOT be the seed is the order the host emits, which is current-workspace-first: that
+    would put whichever workspace is on screen at the top of the panel on every launch.
+  - A slot is session-scoped and never persisted - the next launch seeds again from the timestamps,
+    the only durable answer there is. `WorkspaceArrival` is a field on `TopofmindComponent`, never a
+    top-level object, for the reason all the state here is.
+  - **An id absent from `slotsFor` is FORGOTTEN**, so closing a workspace and opening it again puts
+    it at the bottom, which is what opening it means. Keeping the old slot would make a reopened
+    workspace reappear in the middle. `WorkspaceArrivalTest` pins that, plus the seed, plus that a
+    rebuild with the same set moves nothing; three of them fail if the arrival slots are computed
+    and then ignored.
 - **Default expansion depends on the current workspace, so it needs overrides.** Only the workspace
   on screen is open by default. Because that default is not a constant, `TabTreeState` records the
   user's toggles in a `Map<String, Boolean>` rather than a set of exceptions: a set cannot tell "the

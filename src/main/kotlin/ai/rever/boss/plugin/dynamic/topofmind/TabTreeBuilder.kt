@@ -17,23 +17,23 @@ object TabTreeBuilder {
     private const val UNSAVED = Long.MAX_VALUE
 
     /**
-     * Oldest first, so the newest workspace is the bottom row.
+     * The SEED order, used only for workspaces the panel meets for the first time together.
      *
-     * `LayoutWorkspace.timestamp` is when the workspace was last written, which is the only clock
-     * the api offers - `ActiveTabData` carries no time at all and the ids are names
-     * (`workspace-claude-code`), not the `workspace-<epoch millis>` that `generateId` produces, so
-     * neither can answer this. The consequence worth knowing: saving a workspace moves it down.
+     * Oldest-written first, with the name as a tie-break and the id after it, so a first sighting is
+     * deterministic and two workspaces written in the same millisecond never swap places.
+     * `LayoutWorkspace.timestamp` is the only clock the api offers - `ActiveTabData` carries no time
+     * at all, and the ids are names (`workspace-claude-code`) rather than the
+     * `workspace-<epoch millis>` `generateId` produces.
      *
-     * The name is the tie-break, and the id after it, because two workspaces written in the same
-     * millisecond must not swap places between one rebuild and the next.
-     *
-     * NOT arrival order, which is the obvious thing and is wrong: the host emits the CURRENT
-     * workspace's tabs first and the preserved ones after, so grouping in arrival order made
-     * whichever workspace you switched to jump to the top of the panel - rows moving out from under
-     * the cursor. Which workspace is current is said with the accent stripe in WorkspaceHeader,
-     * not with position.
+     * This used to be the whole ordering, and it answered the wrong question. Opening a workspace
+     * saved months ago dropped it into the MIDDLE of the list at its save-time position, and
+     * workspaces sharing a timestamp fell through to the tie-break and came out alphabetical.
+     * [WorkspaceArrival] answers "when did this start running here" instead, and takes this as its
+     * seed. What must NOT be the seed is the order the host emits: that is
+     * current-workspace-first, so it would put whichever workspace is on screen at the top of the
+     * panel on every launch and move rows out from under the cursor on every switch.
      */
-    private fun workspaceOrder(addedAt: Map<String, Long>): Comparator<TabTreeNode.WorkspaceNode> =
+    private fun seedOrder(addedAt: Map<String, Long>): Comparator<TabTreeNode.WorkspaceNode> =
         compareBy(
             { addedAt[it.workspaceId] ?: UNSAVED },
             { it.name.lowercase() },
@@ -87,13 +87,17 @@ object TabTreeBuilder {
      * The panel's whole tree: one node per workspace, each holding one section per pane.
      *
      * [workspaceDataProvider] is read for ONE thing, each workspace's `timestamp` - see
-     * [workspaceOrder]. It used to be read for each workspace's saved layout as well, which is
-     * what [buildTabStructure] records getting rid of. A null provider costs the ordering and
-     * nothing else: every workspace then sorts as unsaved and the tie-break carries the list.
+     * [seedOrder]. It used to be read for each workspace's saved layout as well, which is what
+     * [buildTabStructure] records getting rid of. A null provider costs the seed and nothing else:
+     * every workspace then seeds as unsaved and the name tie-break carries the first sighting.
+     *
+     * [arrival] is what puts a newly opened workspace at the BOTTOM rather than at its save-time
+     * position. It is per panel and lives on the component; see [WorkspaceArrival].
      */
     fun buildTree(
         activeTabs: List<ActiveTabData>,
-        workspaceDataProvider: WorkspaceDataProvider? = null
+        workspaceDataProvider: WorkspaceDataProvider? = null,
+        arrival: WorkspaceArrival? = null
     ): List<TabTreeNode> {
         val addedAt =
             workspaceDataProvider
@@ -114,7 +118,15 @@ object TabTreeBuilder {
                 )
             }
 
-        return rootNodes.sortedWith(workspaceOrder(addedAt))
+        // Seed first, then arrival. The seed decides the order of everything the panel meets at
+        // once; arrival keeps each workspace in the slot it took and appends whatever opens later,
+        // so the workspace you just opened is the bottom row. A null [arrival] - no caller has
+        // passed one - leaves the old behaviour exactly as it was.
+        val seeded = rootNodes.sortedWith(seedOrder(addedAt))
+        if (arrival == null) return seeded
+
+        val slots = arrival.slotsFor(seeded.map { it.workspaceId })
+        return seeded.sortedBy { slots[it.workspaceId] ?: Int.MAX_VALUE }
     }
 
     /**
