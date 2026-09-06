@@ -347,6 +347,15 @@ through the same `switchToWorkspace` the workspace headers use.
   never much height for a toggle to hand back. There is no rule BELOW it either: a line under the
   block read as ground it was standing on rather than as the top of the footer, so
   `WorkspaceActionsFooter` draws none.
+- **A workspace that has just opened is scrolled into view.** It is appended to the bottom (see
+  `WorkspaceArrival`), so past the four or so floors that fit it opens BELOW the fold and the panel
+  would answer a new workspace by showing nothing at all. Three things about the effect: the FIRST
+  sighting is not an opening - everything the window was already running arrives at once when the
+  panel mounts, and scrolling then would jump the block to the bottom on every launch, so that batch
+  is recorded and nothing is scrolled to. The LAST new id is the target, because two workspaces
+  opening in one tick are both below the fold and the lower one is what needs the scroll. And it is
+  keyed on the workspace list, so the roughly-2s rebuild that changes nothing does not re-run it.
+  A stack that fits its cap scrolls nowhere, which is a no-op rather than a special case.
 - **Hit-testing is per floor, and the whole pitch takes the click.** Selection is per workspace, so
   the `Box` takes the press and the `Canvas` inside it only draws.
 - **Every fill is an opaque BLEND, never a surface at an alpha.** A translucent floor lets the

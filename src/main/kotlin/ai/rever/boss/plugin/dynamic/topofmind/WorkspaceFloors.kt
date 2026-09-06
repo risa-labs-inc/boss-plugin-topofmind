@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.Divider
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -317,6 +318,39 @@ internal fun WorkspaceFloors(
         Spacer(modifier = Modifier.height(FLOORS_TOP_GAP))
 
         val listState = rememberLazyListState()
+
+        // Bring a workspace that has just opened into view.
+        //
+        // It is appended to the bottom (see WorkspaceArrival), so past the four or so floors that
+        // fit it opens BELOW the fold: the panel would answer a new workspace by showing nothing at
+        // all. Scrolling to it is the whole of the feedback that it landed.
+        //
+        // The first sighting is not an opening. Everything the window was already running arrives
+        // at once when the panel mounts, and scrolling then would jump the block to the bottom on
+        // every launch - so the first batch is recorded and nothing is scrolled to. `seen` is the
+        // record: ids that have been through here, which is also why a workspace that closes and
+        // opens again is scrolled to a second time, the same way it takes a fresh slot in the
+        // ordering.
+        //
+        // The LAST new id, not the first: two workspaces opening in one tick are both below the
+        // fold, and the lower of them is the one that needs the scroll. Keyed on `workspaces`, so
+        // the roughly-2s rebuild that changes nothing does not re-run it, and a rebuild that
+        // changes a tab title finds no new ids and scrolls nowhere.
+        val seen = remember { mutableSetOf<String>() }
+        LaunchedEffect(workspaces) {
+            val ids = workspaces.map { it.workspaceId }
+            val firstSighting = seen.isEmpty()
+            val opened = ids.filterNot { it in seen }
+            seen.clear()
+            seen.addAll(ids)
+            if (firstSighting) return@LaunchedEffect
+            val target = opened.lastOrNull() ?: return@LaunchedEffect
+            val index = ids.indexOf(target)
+            // A stack that fits its cap does not scroll, and this is a no-op there rather than a
+            // special case: every floor is already in view.
+            if (index >= 0) listState.animateScrollToItem(index)
+        }
+
         LazyColumn(
             state = listState,
             // heightIn rather than height: a three-workspace window gets a three-storey block and
