@@ -118,7 +118,13 @@ internal fun TabRow(
     indent: Dp,
     onClick: () -> Unit,
     onClose: () -> Unit,
-    onMoveTo: (String) -> Unit,
+    /**
+     * Move this tab to a workspace, and to a pane of it when the gesture named one.
+     *
+     * The pane is null from the context menu, which lists workspaces and lets the host pick the
+     * pane, and non-null from a drop onto a pane header.
+     */
+    onMoveTo: (String, String?) -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -142,7 +148,7 @@ internal fun TabRow(
 
     val dragModifier =
         if (dragState != null) {
-            rememberTabDragModifier(tab, dragState) { onMoveTo(it.targetWorkspaceId) }
+            rememberTabDragModifier(tab, dragState) { onMoveTo(it.targetWorkspaceId, it.targetPanelId) }
         } else {
             Modifier
         }
@@ -349,7 +355,7 @@ private fun tabMenuItems(
     transferTargets: List<TransferTarget>,
     onFocus: () -> Unit,
     onClose: () -> Unit,
-    onMoveTo: (String) -> Unit,
+    onMoveTo: (String, String?) -> Unit,
 ): List<ContextMenuItemData> =
     buildList {
         add(ContextMenuItemData(label = "Focus", icon = Icons.AutoMirrored.Outlined.OpenInNew, onClick = onFocus))
@@ -362,7 +368,7 @@ private fun tabMenuItems(
                         transferTargets.map { target ->
                             ContextMenuItemData(
                                 label = target.name,
-                                onClick = { onMoveTo(target.workspaceId) },
+                                onClick = { onMoveTo(target.workspaceId, null) },
                             )
                         },
                 ),

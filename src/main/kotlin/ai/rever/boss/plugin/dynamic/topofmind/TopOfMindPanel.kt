@@ -48,6 +48,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** How long a just-moved row stays highlighted in its new group. */
+/**
+ * How long a dragged tab must rest on a collapsed workspace before it opens.
+ *
+ * Long enough that dragging past a header on the way somewhere else costs nothing, short enough to
+ * read as an answer rather than a wait. Every header between the tab and its destination is crossed
+ * by an ordinary drag, and opening each one would reflow the tree under the pointer.
+ */
+private const val SPRING_LOAD_DELAY_MS = 550L
+
 private const val MOVED_FLASH_MS = 1_400L
 
 /** Depth indent for tabs and nested split sections, matching the tab bar's group nesting. */
@@ -153,6 +162,33 @@ private fun TabTree(
 
     // The flash is cleared here rather than by the row, so it survives the row being recomposed
     // into a different group - which is exactly what a move does to it.
+    // SPRING-LOADED EXPANSION. Hovering a collapsed workspace with a tab in hand opens it, so the
+    // panes inside become drop targets without letting go first.
+    //
+    // A delay, not an immediate open: dragging from the top of the panel to the bottom crosses
+    // every header on the way, and opening each one would reflow the tree under the pointer mid
+    // drag. 550ms is long enough that passing over costs nothing and short enough to feel like an
+    // answer rather than a wait.
+    //
+    // Only ever OPENS. A group that closed again when the pointer left would take its panes with
+    // it, and the reason to open it was to drop into one of those panes - so the timer that opens
+    // it has no counterpart. `toggleExpansion` also records an override, which is right: the user
+    // asked for this group by holding a tab over it.
+    val hoveredForDrop = dragState.hoveredWorkspaceId
+    LaunchedEffect(hoveredForDrop, dragState.dragging) {
+        val workspaceId = hoveredForDrop ?: return@LaunchedEffect
+        if (dragState.dragging == null) return@LaunchedEffect
+        if (treeState.isWorkspaceExpanded(workspaceId)) return@LaunchedEffect
+        delay(SPRING_LOAD_DELAY_MS)
+        // Re-checked after the wait: the pointer may have moved on, or the drop may have happened.
+        if (dragState.dragging != null &&
+            dragState.hoveredWorkspaceId == workspaceId &&
+            !treeState.isWorkspaceExpanded(workspaceId)
+        ) {
+            treeState.toggleExpansion(workspaceId)
+        }
+    }
+
     LaunchedEffect(dragState.recentlyMovedTabId) {
         if (dragState.recentlyMovedTabId != null) {
             delay(MOVED_FLASH_MS)
@@ -163,9 +199,10 @@ private fun TabTree(
     fun moveTab(
         tab: ActiveTabData,
         targetWorkspaceId: String,
+        targetPanelId: String? = null,
     ) {
         scope.launch {
-            if (TabTransfer.move(activeTabsProvider, tab.tabId, targetWorkspaceId)) {
+            if (TabTransfer.move(activeTabsProvider, tab.tabId, targetWorkspaceId, targetPanelId)) {
                 dragState.recentlyMovedTabId = tab.tabId
                 // Do not wait for the host's poll: the whole point of the flash is that the row
                 // has already reappeared under its new workspace by the time you look.
@@ -352,7 +389,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
     paneExpansion: SplitPaneExpansion,
     transferSupported: Boolean,
     scope: CoroutineScope,
-    onMove: (ActiveTabData, String) -> Unit,
+    onMove: (ActiveTabData, String, String?) -> Unit,
     onCloseTabs: ((String, List<ActiveTabData>) -> Unit)?,
 ) {
     if (node !is TabTreeNode.WorkspaceNode) return
@@ -426,7 +463,7 @@ private fun TabStructure(
     dragState: TabDragState?,
     paneExpansion: SplitPaneExpansion,
     transferSupported: Boolean,
-    onMove: (ActiveTabData, String) -> Unit,
+    onMove: (ActiveTabData, String, String?) -> Unit,
     onCloseTabs: ((String, List<ActiveTabData>) -> Unit)?,
     sectionPath: String = "",
 ) {
@@ -460,7 +497,7 @@ private fun TabStructure(
                     indent = (INDENT_STEP * (depth + 1)).dp,
                     onClick = { activeTabsProvider.selectTab(tab.tabId, tab.panelId) },
                     onClose = { activeTabsProvider.closeTab(tab.tabId) },
-                    onMoveTo = { target -> onMove(tab, target) },
+                    onMoveTo = { workspaceId, panelId -> onMove(tab, workspaceId, panelId) },
                 )
             }
 
@@ -522,6 +559,13 @@ private fun TabStructure(
                             activeTabsProvider.activePanelId == panelId,
                     onToggleExpansion = panelId?.let { id -> { paneExpansion.togglePinned(id) } },
                     onHover = panelId?.let { id -> { paneExpansion.hover(id) } },
+                    // A pane can be dropped ON, which is what lets a tab go to a chosen pane rather
+                    // than to whichever one the destination workspace happens to have active - and
+                    // is the only way to move a tab between two panes of the workspace it is
+                    // already in. Null for a section that stands for a nested split rather than a
+                    // pane: it has no pane id, so there is nothing to name as the destination.
+                    paneTarget = panelId?.let { TabDragState.PaneTarget(workspaceId, it) },
+                    dragState = dragState,
                     onCloseAll =
                         onCloseTabs?.takeIf { tabs.isNotEmpty() }?.let { close ->
                             {

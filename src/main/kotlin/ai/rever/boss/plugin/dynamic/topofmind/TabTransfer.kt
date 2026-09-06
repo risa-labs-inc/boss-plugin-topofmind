@@ -76,14 +76,26 @@ object TabTransfer {
     }
 
     /**
-     * Move [tabId] into [targetWorkspaceId].
+     * Move [tabId] into [targetWorkspaceId], and into [targetPanelId] when one is named.
+     *
+     * A null pane lets the host pick the workspace's active one, which is what a drop onto a
+     * WORKSPACE header means; a named pane is a drop onto that pane, and is the only way to express
+     * a move between two panes of one workspace - the workspace-only verb has to refuse that,
+     * because without a pane it cannot tell it from a move to where the tab already is.
      *
      * Suspending because the host has to marshal the transfer onto the UI thread; it returns false
-     * for anything it will not do (unknown tab, destination not running, already there).
+     * for anything it will not do (unknown tab, destination not running, already there, a pane the
+     * target workspace does not have).
      */
     suspend fun move(
         provider: ActiveTabsProvider,
         tabId: String,
         targetWorkspaceId: String,
-    ): Boolean = provider.moveTabToWorkspace(tabId, targetWorkspaceId)
+        targetPanelId: String? = null,
+    ): Boolean =
+        if (targetPanelId == null) {
+            provider.moveTabToWorkspace(tabId, targetWorkspaceId)
+        } else {
+            provider.moveTabToPane(tabId, targetWorkspaceId, targetPanelId)
+        }
 }
