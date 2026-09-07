@@ -6,15 +6,9 @@ import ai.rever.boss.plugin.api.GenericDialogProvider
 import ai.rever.boss.plugin.api.SplitViewOperations
 import ai.rever.boss.plugin.api.WorkspaceDataProvider
 import ai.rever.boss.plugin.ui.BossColors
-import ai.rever.boss.plugin.ui.BossDialog
-import ai.rever.boss.plugin.ui.BossSearchBar
-import ai.rever.boss.plugin.ui.BossSecondaryButton
-import ai.rever.boss.plugin.ui.BossTheme
 import ai.rever.boss.plugin.ui.BossThemeColors
-import ai.rever.boss.plugin.workspace.LayoutWorkspace
 import ai.rever.boss.plugin.workspace.WorkspaceSerializer
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -23,23 +17,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredWidthIn
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Icon
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Circle
-import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
@@ -56,10 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -82,18 +62,6 @@ private val ACTION_ICON = 20.dp
 private val FOOTER_GAP = 4.dp
 private val FOOTER_INSET = 6.dp
 private val FOOTER_SIDE_INSET = 8.dp
-
-private val DIALOG_MIN_WIDTH = 320.dp
-private val DIALOG_MAX_WIDTH = 420.dp
-private val DIALOG_INSET = 16.dp
-private val DIALOG_LIST_MAX_HEIGHT = 320.dp
-private const val DIALOG_TITLE_SP = 15
-private val SEARCH_HEIGHT = 28.dp
-private val MENU_RADIUS = RoundedCornerShape(4.dp)
-private val MENU_ROW_HEIGHT = 28.dp
-private val MENU_ROW_INSET = 10.dp
-private val MENU_DOT = 8.dp
-private const val MENU_TEXT_SP = 12
 
 /**
  * The workspace actions, pinned to the foot of the panel.
@@ -337,162 +305,6 @@ private fun FooterAction(
             tint = BossThemeColors.TextSecondary,
         )
         overlay()
-    }
-}
-
-/**
- * Every saved workspace, in a dialog with a search field.
- *
- * A dialog rather than the popup this used to be, for two reasons. The list is as long as the user
- * has workspaces, so it needs filtering, and a search field wants focus and room - both awkward in
- * a menu hanging off a 32dp button. It also sidesteps that button entirely as a measuring parent:
- * the popup inherited the anchor's 32dp width constraint and rendered as a strip with every name
- * clipped away, which needed `requiredWidthIn` to defeat. A dialog is sized by the window.
- *
- * [BossDialog], never a plain Compose `Dialog`: under JxBrowser's hardware-accelerated surface an
- * ordinary dialog renders BEHIND the browser, which is the whole reason the wrapper exists.
- *
- * Content is wrapped in [BossTheme] because the heavyweight path composes it in a window of its
- * own, where the panel's theme is not in scope.
- */
-@Composable
-private fun WorkspacePickerDialog(
-    workspaces: List<LayoutWorkspace>,
-    currentWorkspaceId: String?,
-    runningWorkspaceIds: Set<String>,
-    onDismiss: () -> Unit,
-    onPick: (LayoutWorkspace) -> Unit,
-) {
-    var query by remember { mutableStateOf("") }
-    // Filtering is derived, not stored: a stored copy is a second thing to keep in step with the
-    // workspace list, which refreshes underneath this dialog while it is open.
-    val matches =
-        remember(workspaces, query) {
-            if (query.isBlank()) {
-                workspaces
-            } else {
-                workspaces.filter { it.name.contains(query.trim(), ignoreCase = true) }
-            }
-        }
-
-    BossDialog(onDismissRequest = onDismiss) {
-        BossTheme {
-            Surface(
-                modifier =
-                    Modifier
-                        .requiredWidthIn(min = DIALOG_MIN_WIDTH, max = DIALOG_MAX_WIDTH)
-                        .border(1.dp, BossThemeColors.BorderColor, MENU_RADIUS),
-                shape = MENU_RADIUS,
-                color = BossColors.contextMenuBackground,
-            ) {
-                Column(modifier = Modifier.padding(DIALOG_INSET)) {
-                    Text(
-                        text = "Open Space",
-                        fontSize = DIALOG_TITLE_SP.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = BossThemeColors.TextPrimary,
-                    )
-                    Spacer(modifier = Modifier.height(DIALOG_INSET))
-
-                    BossSearchBar(
-                        query = query,
-                        onQueryChange = { query = it },
-                        placeholder = "Search spaces",
-                        modifier = Modifier.fillMaxWidth().height(SEARCH_HEIGHT),
-                    )
-                    Spacer(modifier = Modifier.height(FOOTER_GAP))
-
-                    Column(
-                        modifier =
-                            Modifier
-                                .heightIn(max = DIALOG_LIST_MAX_HEIGHT)
-                                .verticalScroll(rememberScrollState()),
-                    ) {
-                        if (matches.isEmpty()) {
-                            Text(
-                                text =
-                                    if (workspaces.isEmpty()) {
-                                        "No saved spaces"
-                                    } else {
-                                        "Nothing matching \"$query\""
-                                    },
-                                fontSize = MENU_TEXT_SP.sp,
-                                color = BossThemeColors.TextMuted,
-                                modifier = Modifier.padding(horizontal = MENU_ROW_INSET, vertical = FOOTER_GAP),
-                            )
-                        }
-                        matches.forEach { workspace ->
-                            // Three states, as the host's menu has them: the workspace on screen,
-                            // one that is merely running behind it, and one that only exists on disk.
-                            val isCurrent = workspace.id == currentWorkspaceId
-                            val isRunning = !isCurrent && workspace.id in runningWorkspaceIds
-                            WorkspaceMenuRow(
-                                name = workspace.name,
-                                isCurrent = isCurrent,
-                                isRunning = isRunning,
-                                onClick = { onPick(workspace) },
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(DIALOG_INSET))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        BossSecondaryButton(text = "Cancel", onClick = onDismiss)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun WorkspaceMenuRow(
-    name: String,
-    isCurrent: Boolean,
-    isRunning: Boolean,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isHovered by interactionSource.collectIsHoveredAsState()
-
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(MENU_ROW_HEIGHT)
-                .background(if (isHovered) BossColors.contextMenuHover else Color.Transparent)
-                .hoverable(interactionSource)
-                .clickable(onClick = onClick)
-                .padding(horizontal = MENU_ROW_INSET),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(MENU_ROW_INSET),
-    ) {
-        Text(
-            text = name,
-            fontSize = MENU_TEXT_SP.sp,
-            // Never the accent: BossColors exposes `signal`, a FILL colour, which lands under
-            // 4.5:1 as text on the default theme.
-            color = if (isCurrent) BossThemeColors.TextPrimary else BossThemeColors.TextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        // Filled for the one on screen, outlined for one that is merely running: the same mark at
-        // two strengths says "running" once and "yours" only on the one that is.
-        val dot =
-            when {
-                isCurrent -> Icons.Filled.Circle
-                isRunning -> Icons.Outlined.Circle
-                else -> null
-            }
-        if (dot != null) {
-            Icon(
-                imageVector = dot,
-                contentDescription = if (isCurrent) "Current space" else "Running",
-                modifier = Modifier.size(MENU_DOT),
-                tint = if (isCurrent) BossThemeColors.SuccessColor else BossThemeColors.TextSecondary,
-            )
-        }
     }
 }
 
