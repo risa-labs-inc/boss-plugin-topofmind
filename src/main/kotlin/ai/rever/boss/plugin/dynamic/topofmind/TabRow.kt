@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -83,7 +84,17 @@ private const val DRAG_SOURCE_ALPHA = 0.3f
 private const val MOVED_FLASH_ALPHA = 0.28f
 private const val GHOST_ALPHA = 0.95f
 private val GHOST_MAX_WIDTH = 220.dp
-private val GHOST_LEAD = 10.dp
+/**
+ * Where the pointer sits inside the ghost, as a fraction of its width from the leading edge.
+ *
+ * The host's own tab ghost (`TabDraggingOverlay`) uses `GHOST_WIDTH / 4` with the card vertically
+ * centred on the pointer, and this is that rule: the tab is HELD, a quarter in from its leading
+ * edge, the way it is when dragged out of the vertical tab bar. It used to sit 10dp down and to the
+ * right of the cursor instead, which reads as a tooltip trailing the pointer rather than as the tab
+ * you picked up - and it meant the same gesture felt different depending on which of the two lists
+ * you started the drag in.
+ */
+private const val GHOST_HOTSPOT_FRACTION = 4
 
 /**
  * One tab in the tree.
@@ -401,9 +412,10 @@ internal fun tabIcon(typeId: String): ImageVector =
  * bounds and would scroll away with it. This is a sibling of the list, laid over the whole panel.
  *
  * Placement is [pointer] minus [panelOrigin], both in window coordinates: the drag reports where
- * the finger is in the window, and this Box needs an offset inside the panel. It sits down and to
- * the right of the cursor so the pointer itself stays visible, and it never intercepts anything -
- * no pointer-input modifier, so hit-testing for the drop target passes straight through it.
+ * the finger is in the window, and this Box needs an offset inside the panel. The pointer sits
+ * INSIDE the card, a quarter in from its leading edge and vertically centred, which is the host's
+ * own ghost hotspot - see [GHOST_HOTSPOT_FRACTION]. It never intercepts anything: no pointer-input
+ * modifier, so hit-testing for the drop target passes straight through it.
  */
 @Composable
 internal fun TabDragGhost(
@@ -428,15 +440,25 @@ internal fun TabDragGhost(
     Row(
         modifier =
             Modifier
-                .offset {
-                    val pointer = dragState.pointer
-                    if (pointer == Offset.Unspecified) {
-                        IntOffset.Zero
-                    } else {
-                        IntOffset(
-                            x = (pointer.x - panelOrigin.x).roundToInt() + GHOST_LEAD.roundToPx(),
-                            y = (pointer.y - panelOrigin.y).roundToInt() - (ROW_HEIGHT / 2).roundToPx(),
-                        )
+                // `layout` rather than `offset`, because the hotspot is a fraction of the ghost's
+                // OWN width and only the measure pass knows it: the row is as wide as its title,
+                // up to GHOST_MAX_WIDTH. Placement still happens in the layout phase, so the
+                // ghost follows the pointer without recomposing anything - the same property
+                // `offset { }` had.
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    layout(placeable.width, placeable.height) {
+                        val pointer = dragState.pointer
+                        if (pointer == Offset.Unspecified) {
+                            placeable.place(0, 0)
+                        } else {
+                            placeable.place(
+                                x =
+                                    (pointer.x - panelOrigin.x).roundToInt() -
+                                        placeable.width / GHOST_HOTSPOT_FRACTION,
+                                y = (pointer.y - panelOrigin.y).roundToInt() - placeable.height / 2,
+                            )
+                        }
                     }
                 }.widthIn(max = GHOST_MAX_WIDTH)
                 .height(ROW_HEIGHT)
