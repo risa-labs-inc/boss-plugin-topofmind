@@ -246,7 +246,7 @@ private fun WorkspaceActions(
     if (splits != null) {
         FooterAction(
             icon = Icons.Outlined.Workspaces,
-            description = "Open workspace",
+            description = "Open space",
             onClick = { panelDialogs.toggle(PanelDialog.WORKSPACE_PICKER) },
         ) {
             if (pickerOpen) {
@@ -273,7 +273,7 @@ private fun WorkspaceActions(
     if (dialogs != null) {
         FooterAction(
             icon = Icons.Outlined.Save,
-            description = "Save workspace",
+            description = "Save space",
             onClick = { scope.launch { saveWorkspace(workspaceDataProvider, dialogs) } },
         )
     }
@@ -281,7 +281,7 @@ private fun WorkspaceActions(
     if (splits != null && picker != null) {
         FooterAction(
             icon = Icons.Outlined.Upload,
-            description = "Open workspace from file",
+            description = "Open space from file",
             onClick = {
                 openWorkspaceFromFile(
                     filePicker = picker,
@@ -297,7 +297,7 @@ private fun WorkspaceActions(
     if (dialogs != null) {
         FooterAction(
             icon = Icons.Outlined.Delete,
-            description = "Delete workspace",
+            description = "Delete space",
             onClick = { scope.launch { deleteWorkspace(workspaceDataProvider, dialogs) } },
         )
     }
@@ -388,7 +388,7 @@ private fun WorkspacePickerDialog(
             ) {
                 Column(modifier = Modifier.padding(DIALOG_INSET)) {
                     Text(
-                        text = "Open Workspace",
+                        text = "Open Space",
                         fontSize = DIALOG_TITLE_SP.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = BossThemeColors.TextPrimary,
@@ -398,7 +398,7 @@ private fun WorkspacePickerDialog(
                     BossSearchBar(
                         query = query,
                         onQueryChange = { query = it },
-                        placeholder = "Search workspaces",
+                        placeholder = "Search spaces",
                         modifier = Modifier.fillMaxWidth().height(SEARCH_HEIGHT),
                     )
                     Spacer(modifier = Modifier.height(FOOTER_GAP))
@@ -413,7 +413,7 @@ private fun WorkspacePickerDialog(
                             Text(
                                 text =
                                     if (workspaces.isEmpty()) {
-                                        "No saved workspaces"
+                                        "No saved spaces"
                                     } else {
                                         "Nothing matching \"$query\""
                                     },
@@ -489,7 +489,7 @@ private fun WorkspaceMenuRow(
         if (dot != null) {
             Icon(
                 imageVector = dot,
-                contentDescription = if (isCurrent) "Current workspace" else "Running",
+                contentDescription = if (isCurrent) "Current space" else "Running",
                 modifier = Modifier.size(MENU_DOT),
                 tint = if (isCurrent) BossThemeColors.SuccessColor else BossThemeColors.TextSecondary,
             )
@@ -517,10 +517,10 @@ private suspend fun saveWorkspace(
     val name =
         dialogs
             .showTextInputDialog(
-                title = "Save Workspace",
+                title = "Save Space",
                 message = "Save the current layout under a name.",
                 initialValue = current?.name.orEmpty(),
-                placeholder = "Workspace name",
+                placeholder = "Space name",
                 validation = { if (it.isBlank()) "Enter a name" else null },
             )?.trim()
             .orEmpty()
@@ -542,21 +542,21 @@ private suspend fun deleteWorkspace(
     val saved = workspaceDataProvider.workspaces.value
     if (saved.isEmpty()) {
         dialogs.showAlertDialog(
-            title = "Delete Workspace",
-            message = "There are no saved workspaces to delete.",
+            title = "Delete Space",
+            message = "There are no saved spaces to delete.",
         )
         return
     }
     val choice =
         dialogs.showChoiceDialog(
-            title = "Delete Workspace",
-            message = "Pick the workspace to delete.",
+            title = "Delete Space",
+            message = "Pick the space to delete.",
             // Keyed by NAME, because that is what deleteWorkspace takes.
             choices = saved.map { DialogChoice(id = it.name, label = it.name, description = it.description) },
         ) ?: return
     val confirmed =
         dialogs.showConfirmationDialog(
-            title = "Delete Workspace",
+            title = "Delete Space",
             message = "Delete \"${choice.label}\"? This removes the saved layout and cannot be undone.",
             confirmText = "Delete",
             isDestructive = true,
@@ -579,7 +579,7 @@ private fun openWorkspaceFromFile(
     dialogs: GenericDialogProvider?,
     scope: CoroutineScope,
 ) {
-    filePicker.pickFile(title = "Open Workspace", filters = listOf("json")) { path ->
+    filePicker.pickFile(title = "Open Space", filters = listOf("json")) { path ->
         if (path.isNullOrBlank()) return@pickFile
         scope.launch {
             val workspace =
@@ -588,8 +588,8 @@ private fun openWorkspaceFromFile(
                 }
             if (workspace == null) {
                 dialogs?.showAlertDialog(
-                    title = "Open Workspace",
-                    message = "That file could not be read as a workspace.",
+                    title = "Open Space",
+                    message = "That file could not be read as a space.",
                 )
                 return@launch
             }

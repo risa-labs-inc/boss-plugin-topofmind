@@ -482,7 +482,7 @@ private fun isHomeUrl(tab: ActiveTabData): Boolean {
 /**
  * Right-click menu for a row.
  *
- * "Move to workspace" is a submenu rather than a flat list because the destinations are named by
+ * "Move to space" is a submenu rather than a flat list because the destinations are named by
  * the user and there can be as many as they have workspaces running. It is omitted entirely when
  * there is nowhere to move to - a disabled item that is always disabled teaches nothing.
  */
@@ -498,7 +498,7 @@ private fun tabMenuItems(
         if (transferTargets.isNotEmpty()) {
             add(
                 ContextMenuItemData(
-                    label = "Move to workspace",
+                    label = "Move to space",
                     icon = Icons.Outlined.Workspaces,
                     subMenu =
                         transferTargets.map { target ->

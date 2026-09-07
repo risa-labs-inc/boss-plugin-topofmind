@@ -22,8 +22,8 @@ internal class TopofmindMcpToolProvider(
             McpToolDefinition(
                 name = "tabs_list",
                 description =
-                    "List all active tabs across every workspace (tab id, title, type, " +
-                        "workspace, which panel/window/split it's in, url). The workspace on " +
+                    "List all active tabs across every space (tab id, title, type, " +
+                        "space, which panel/window/split it's in, url). The space on " +
                         "screen is marked with *.",
                 handler =
                     McpToolHandler {
@@ -99,9 +99,9 @@ internal class TopofmindMcpToolProvider(
             McpToolDefinition(
                 name = "tab_move",
                 description =
-                    "Move a tab into another workspace this window is running, keeping it alive " +
-                        "(a browser tab keeps its page, a terminal its session). The workspace " +
-                        "may be named by id or by name. Does not switch workspaces.",
+                    "Move a tab into another space this window is running, keeping it alive " +
+                        "(a browser tab keeps its page, a terminal its session). The space " +
+                        "may be named by id or by name. Does not switch spaces.",
                 inputSchema = MOVE_SCHEMA,
                 readOnly = false,
                 handler =
@@ -109,7 +109,7 @@ internal class TopofmindMcpToolProvider(
                         val p = activeTabsProvider ?: return@McpToolHandler unavailable()
                         if (!TabTransfer.isSupported(p)) {
                             return@McpToolHandler McpToolResult(
-                                "This BOSS build cannot move tabs between workspaces.",
+                                "This BOSS build cannot move tabs between spaces.",
                                 isError = true,
                             )
                         }
@@ -127,7 +127,7 @@ internal class TopofmindMcpToolProvider(
                             targets.firstOrNull { it.workspaceId == wanted }
                                 ?: targets.firstOrNull { it.name.equals(wanted, ignoreCase = true) }
                                 ?: return@McpToolHandler McpToolResult(
-                                    "No workspace \"$wanted\" available as a destination. Running: " +
+                                    "No space \"$wanted\" available as a destination. Running: " +
                                         targets.joinToString(", ") { "${it.name} (${it.workspaceId})" }
                                             .ifEmpty { "none" },
                                     isError = true,
@@ -155,6 +155,6 @@ internal class TopofmindMcpToolProvider(
         const val OPEN_URL_SCHEMA =
             """{"type":"object","properties":{"url":{"type":"string","description":"URL to open."},"title":{"type":"string","description":"Optional tab title."}},"required":["url"]}"""
         const val MOVE_SCHEMA =
-            """{"type":"object","properties":{"tab_id":{"type":"string","description":"The tab id from tabs_list."},"workspace":{"type":"string","description":"Destination workspace, by id or name. Must be one this window is running."}},"required":["tab_id","workspace"]}"""
+            """{"type":"object","properties":{"tab_id":{"type":"string","description":"The tab id from tabs_list."},"workspace":{"type":"string","description":"Destination space, by id or name. Must be one this window is running."}},"required":["tab_id","workspace"]}"""
     }
 }

@@ -602,6 +602,32 @@ The panel deliberately copies the host's vertical tab bar (`BossTabButton.kt`, `
 and 10sp SemiBold headers with 0.8sp tracking. No card elevation, no row gutters, no second line -
 separation comes from the fill.
 
+## The product word is "Space", the code word is `workspace`
+
+What a person reads in this panel is a **Space**. Everything the code calls it is still
+`workspace`, and that split is deliberate: do not "finish the rename".
+
+Renamed (display only): the footer's icon descriptions and its Open/Save/Delete dialogs, the
+picker's title, search placeholder and empty state, the "Move to space" tab menu, the close-all
+confirmations, the quick switcher's placeholder and its unnamed-space fallback, the MCP tool
+DESCRIPTIONS in `TopofmindMcpTools.kt`, and the `description` in `plugin.json`.
+
+Kept as `workspace`:
+
+- **Every identifier**, because they come from the plugin api - `ActiveTabData.workspaceId` /
+  `.workspaceName`, `WorkspaceDataProvider`, `SplitViewOperations.moveTabToWorkspace`,
+  `PanelDialog.WORKSPACE_PICKER`, and this repo's own `WorkspaceFooter.kt`,
+  `switchToWorkspace(...)`, `TabDragState.PaneTarget.workspaceId`. The api is consumed by 33
+  plugin repos and is binary-checked; a member rename rejects every plugin.
+- **MCP tool NAMES** (`tabs_list`, `tab_move`) and their **argument names**. `tab_move` still
+  takes `workspace`; only the schema's `description` prose says "space". Renaming the argument
+  would break every caller.
+- **The host action id** `"open-workspace-picker"`, matched as a string against the host.
+- **Tree node ids** of the form `"workspace-$workspaceId"`, and `deleteWorkspace(name)` staying
+  keyed by NAME.
+- **Log and diagnostic text**, and comments - a comment saying "space" next to `workspaceId`
+  reads worse than either word alone.
+
 ## Version Management
 
 **`build.gradle.kts` is the single source of truth for version.** `processResources` syncs it into

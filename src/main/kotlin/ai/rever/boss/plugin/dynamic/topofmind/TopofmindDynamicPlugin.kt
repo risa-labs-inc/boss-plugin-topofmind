@@ -37,7 +37,7 @@ class TopofmindDynamicPlugin : DynamicPlugin {
     // truth for plugin.json. This copy is read by the host's plugin list and had drifted five
     // releases behind.
     override val version: String = "1.2.0"
-    override val description: String = "View, switch between and move active tabs across workspaces"
+    override val description: String = "View, switch between and move active tabs across spaces"
     override val author: String = "Risa Labs"
     override val url: String = "https://github.com/risa-labs-inc/boss-plugin-topofmind"
 
@@ -59,7 +59,7 @@ class TopofmindDynamicPlugin : DynamicPlugin {
                 workspaceDataProvider = context.workspaceDataProvider,
                 splitViewOperations = context.splitViewOperations,
                 // The host renders this natively (a real NSMenu on macOS), which is what lets
-                // "Move to workspace" be a submenu rather than a hand-drawn popup.
+                // "Move to space" be a submenu rather than a hand-drawn popup.
                 contextMenuProvider = context.contextMenuProvider,
                 // The workspace footer's two: the host's file dialog and its prompts. Null on a
                 // host that does not offer them, which hides the buttons that need them.
