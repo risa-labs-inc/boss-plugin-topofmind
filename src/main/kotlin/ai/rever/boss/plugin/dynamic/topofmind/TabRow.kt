@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,9 +34,9 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.SpaceDashboard
 import androidx.compose.material.icons.outlined.Tab
 import androidx.compose.material.icons.outlined.Terminal
-import androidx.compose.material.icons.outlined.Workspaces
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -46,10 +47,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Rect
-import kotlin.math.roundToInt
-import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -61,6 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 
 // The vertical tab bar's own metrics, so a Top of Mind row and a tab-bar row read as the same
 // control. See BossTabButton.kt in the host: 32dp tall, flush, 3dp radius, 8dp inside, 6dp between.
@@ -499,7 +499,7 @@ private fun tabMenuItems(
             add(
                 ContextMenuItemData(
                     label = "Move to space",
-                    icon = Icons.Outlined.Workspaces,
+                    icon = Icons.Outlined.SpaceDashboard,
                     subMenu =
                         transferTargets.map { target ->
                             ContextMenuItemData(
