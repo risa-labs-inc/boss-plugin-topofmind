@@ -6,6 +6,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -217,5 +218,36 @@ class SpacePickerTest {
             SpaceState.RUNNING,
             spaceStateFor("a", currentWorkspaceId = null, runningWorkspaceIds = setOf("a")),
         )
+    }
+
+    // ---- gridScrolls ---------------------------------------------------------------------------
+
+    @Test
+    fun `a grid that fits its cap does not scroll`() {
+        // The scrollbar has to be ABSENT here. `Modifier.scrollbar` draws a full-length thumb for
+        // content that fits rather than refusing to draw, so a wrong answer is a permanent bar
+        // beside three tiles - which is exactly what the first two attempts at this gate did.
+        assertFalse(gridScrolls(count = 3, columns = 3))
+        assertFalse(gridScrolls(count = 1, columns = 3))
+    }
+
+    @Test
+    fun `a grid taller than its cap scrolls`() {
+        assertTrue(gridScrolls(count = 20, columns = 4))
+    }
+
+    @Test
+    fun `the row count rounds UP`() {
+        // 13 tiles in 4 columns is 4 rows, not 3. Plain integer division answers 3 and hides the
+        // last row behind a grid that looks complete.
+        assertEquals(gridScrolls(count = 16, columns = 4), gridScrolls(count = 13, columns = 4))
+    }
+
+    @Test
+    fun `nothing to lay out never scrolls`() {
+        // Guards the arithmetic, not the UI: `columns` comes from a measured width, which is zero
+        // for the frame before the dialog has one, and the row count would divide by it.
+        assertFalse(gridScrolls(count = 0, columns = 4))
+        assertFalse(gridScrolls(count = 5, columns = 0))
     }
 }

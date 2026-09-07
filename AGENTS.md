@@ -362,6 +362,37 @@ carrying a dot; it is a grid of tiles now, each one drawing that Space's panes.
   pane divider and the misaligned thumbnails were all found by looking at a PNG and none of them by
   reasoning about the arithmetic. The dialog itself cannot be rendered that way: it is a window.
 
+### The Space picker and the tools menu are one pattern
+
+The picker (`SpacePicker.kt`) and the host's tools menu (`ToolLauncherDialog.kt`) do the same job -
+pick one of a grid of things - so they share a vocabulary rather than each inventing a grid: 8dp
+tile radius, a RAISED tile surface, a hover that tints the fill toward the accent and takes the
+border with it, an 8dp gap, and a 12dp dialog inset. The one thing the Space tile says that a tool
+tile has no need to is its state, so an on-screen Space keeps its accent border underneath the
+hover. Tile HEIGHT deliberately still differs: a Space tile carries a thumbnail, a name and a
+state line where a tool tile carries an icon and a label, and forcing one height would crush one of
+them.
+
+**Both show a scrollbar whenever, and only whenever, there is scroll available.** Three things about
+that, and the second cost two wrong attempts:
+
+- `Modifier.scrollbar` (the `ScrollState` one) has **no fits-the-viewport guard**, unlike
+  `lazyListScrollbar`, which refuses to draw. Given content that fits it computes
+  `contentLength == viewport` and a FULL-LENGTH thumb, so pinning `alpha` unconditionally paints a
+  permanent bar down a grid with nothing to scroll.
+- **The gate cannot be a scroll-state read.** `ScrollState.maxValue` starts at `Int.MAX_VALUE` and
+  holds it until the scrollable has measured, so `maxValue > 0` is true on every first composition;
+  `canScrollForward` is `value < maxValue`, so it is true then too. Both were tried and both drew a
+  bar under three tiles. A probe printed 2147483647. The gate is `gridScrolls(count, columns)` -
+  arithmetic over the tile height and the cap, right on the first frame and testable on its own,
+  with the row count rounded UP so 13 tiles in 4 columns is 4 rows.
+- Pinned alpha is **0.7**, a little under the 0.8 the panel default animates to on a gesture,
+  because a permanent mark wants to be quieter than one that answers a scroll. Both dialogs use the
+  same number.
+
+This replaced the picker's original half-row affordance, where the cap deliberately cut a row in
+half so the cut was the only hint of more. A bar says it outright.
+
 ### The floors view
 
 `WorkspaceFloors.kt` draws every workspace this window is running as a floor of a building, in a

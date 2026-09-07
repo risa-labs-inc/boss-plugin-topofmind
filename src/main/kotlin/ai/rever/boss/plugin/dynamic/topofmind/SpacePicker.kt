@@ -9,7 +9,10 @@ import ai.rever.boss.plugin.ui.BossThemeColors
 import ai.rever.boss.plugin.workspace.LayoutWorkspace
 import ai.rever.boss.plugin.workspace.SplitConfig
 import androidx.compose.foundation.Canvas
+import ai.rever.boss.plugin.scrollbar.getPanelScrollbarConfig
+import ai.rever.boss.plugin.scrollbar.scrollbar
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -67,7 +70,7 @@ import kotlin.math.floor
 // dialogs are the same class of thing and were 4dp apart for no reason.
 private val DIALOG_MIN_WIDTH = 320.dp
 private val DIALOG_MAX_WIDTH = 480.dp
-private val DIALOG_INSET = 16.dp
+private val DIALOG_INSET = 12.dp
 private val DIALOG_RADIUS = RoundedCornerShape(8.dp)
 private const val DIALOG_TITLE_SP = 15
 private val SEARCH_HEIGHT = 28.dp
@@ -98,9 +101,20 @@ private val TILE_HEIGHT = 104.dp
 
 /** `internal` with [TILE_MIN_WIDTH] so [tileColumnsFor]'s boundary can be tested in its own terms. */
 internal val TILE_GAP = 8.dp
-private val TILE_RADIUS = RoundedCornerShape(4.dp)
+private val TILE_RADIUS = RoundedCornerShape(8.dp)
 private val TILE_INSET = 8.dp
 private val TILE_ITEM_GAP = 4.dp
+
+/** The tools menu's hover strength, so a hovered tile looks the same in both dialogs. */
+private const val TILE_HOVER_ALPHA = 0.22f
+
+/**
+ * How visible the grid's scrollbar is while there is anywhere to scroll.
+ *
+ * Matches the tools menu's own value. A little under the 0.8 the panel default animates to on a
+ * gesture, because this one is always there and a permanent mark wants to be quieter.
+ */
+private const val SCROLLBAR_ALPHA = 0.7f
 
 /**
  * The floor plan's frame: about the 1.5 aspect the host's navigation map uses, since the two are
@@ -427,37 +441,86 @@ private fun SpaceGrid(
     runningWorkspaceIds: Set<String>,
     onPick: (LayoutWorkspace) -> Unit,
 ) {
-    BoxWithConstraints(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .heightIn(max = GRID_MAX_HEIGHT)
-                .verticalScroll(rememberScrollState()),
-    ) {
+    val gridScroll = rememberScrollState()
+    // ONE BoxWithConstraints, with the scroll on the Column inside it rather than on the box
+    // itself. The column count comes from `maxWidth`, which only exists inside this scope, and
+    // whether the grid scrolls is derived from that count - so the modifier that needs the answer
+    // has to sit where the answer is available.
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val columns = tileColumnsFor(maxWidth)
         val tileWidth = (maxWidth - TILE_GAP * (columns - 1).toFloat()) / columns.toFloat()
 
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(TILE_GAP),
-            verticalArrangement = Arrangement.spacedBy(TILE_GAP),
-            maxItemsInEachRow = columns,
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = GRID_MAX_HEIGHT)
+                    // Pinned visible while there is anywhere to scroll, absent when there is not.
+                    // The cap used to cut a row in half deliberately, so the half-row was the only
+                    // hint of more; a bar says it outright, and the tools menu says it the same way.
+                    //
+                    // The gate is load-bearing, because `Modifier.scrollbar` has no
+                    // fits-the-viewport guard - unlike `lazyListScrollbar`, which refuses to draw.
+                    // With content that fits it computes a FULL-LENGTH thumb, so pinning alpha
+                    // unconditionally paints a permanent bar beside three tiles.
+                    //
+                    // And the gate is ARITHMETIC, not a scroll-state read. Both obvious reads are
+                    // wrong before the scrollable has measured: `ScrollState.maxValue` starts at
+                    // Int.MAX_VALUE, and `canScrollForward` is `value < maxValue`, so that is true
+                    // as well. Both were tried and both drew the bar under three tiles; a probe
+                    // printed 2147483647. The tile count and the column count are known right
+                    // here, so [gridScrolls] answers on the first frame and can be tested alone.
+                    .scrollbar(
+                        scrollState = gridScroll,
+                        direction = Orientation.Vertical,
+                        config =
+                            getPanelScrollbarConfig().copy(
+                                alpha =
+                                    SCROLLBAR_ALPHA.takeIf {
+                                        gridScrolls(workspaces.size, columns)
+                                    },
+                            ),
+                    ).verticalScroll(gridScroll),
         ) {
-            workspaces.forEach { workspace ->
-                SpaceTile(
-                    workspace = workspace,
-                    state =
-                        spaceStateFor(
-                            workspaceId = workspace.id,
-                            currentWorkspaceId = currentWorkspaceId,
-                            runningWorkspaceIds = runningWorkspaceIds,
-                        ),
-                    onClick = { onPick(workspace) },
-                    modifier = Modifier.width(tileWidth),
-                )
+                FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(TILE_GAP),
+                verticalArrangement = Arrangement.spacedBy(TILE_GAP),
+                maxItemsInEachRow = columns,
+            ) {
+                workspaces.forEach { workspace ->
+                    SpaceTile(
+                        workspace = workspace,
+                        state =
+                            spaceStateFor(
+                                workspaceId = workspace.id,
+                                currentWorkspaceId = currentWorkspaceId,
+                                runningWorkspaceIds = runningWorkspaceIds,
+                            ),
+                        onClick = { onPick(workspace) },
+                        modifier = Modifier.width(tileWidth),
+                    )
+                }
             }
         }
     }
+}
+
+/**
+ * Whether [count] tiles in [columns] columns are taller than the grid's cap, so a scrollbar means
+ * something.
+ *
+ * Arithmetic rather than a scroll-state read, for the reason written at the call site: every
+ * scroll-state answer is wrong until the scrollable has measured, and this one is right on the
+ * first frame. `ceil` by integer division, so 13 tiles in 4 columns is 4 rows, not 3.
+ */
+internal fun gridScrolls(
+    count: Int,
+    columns: Int,
+): Boolean {
+    if (count <= 0 || columns <= 0) return false
+    val rows = (count + columns - 1) / columns
+    return TILE_HEIGHT * rows.toFloat() + TILE_GAP * (rows - 1).toFloat() > GRID_MAX_HEIGHT
 }
 
 /**
@@ -500,8 +563,18 @@ private fun SpaceTile(
             modifier
                 .height(TILE_HEIGHT)
                 .clip(TILE_RADIUS)
-                .background(if (isHovered) BossColors.contextMenuHover else Color.Transparent)
-                .border(1.dp, border, TILE_RADIUS)
+                // The tools menu's tile, token for token: a RAISED surface rather than the dialog
+                // showing through, and a hover that tints toward the accent and brings the border
+                // with it. The two dialogs do the same job - pick one of a grid of things - so
+                // they are meant to read as one pattern rather than two that happen to be grids.
+                // An on-screen Space keeps its accent border underneath, which is the one thing
+                // this tile says that a tool tile has no need to.
+                .background(
+                    when {
+                        isHovered -> BossThemeColors.AccentColor.copy(alpha = TILE_HOVER_ALPHA)
+                        else -> BossColors.darkSurface
+                    },
+                ).border(1.dp, if (isHovered) BossThemeColors.AccentColor else border, TILE_RADIUS)
                 .hoverable(interactionSource)
                 .clickable(onClick = onClick)
                 .padding(TILE_INSET),
