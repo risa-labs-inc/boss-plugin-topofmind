@@ -25,9 +25,12 @@ up in the right direction. `PaneStructureTest` pins what can be checked
 without a screen: that a section is named by whatever
 `ActiveTabData.splitPosition` says, that sections are flat and in the host's order, that workspaces
 are ordered oldest-saved first, and that the floor plan takes a pane's name literally only when the
-names actually tile the plate. The api is `compileOnly` for the plugin, so the tests take it onto
-their own runtime classpath through the same conditional - the local sibling jar, or CI's
-downloaded one.
+names actually tile the plate. `SpacePickerTest` pins the four pure rules behind a picker tile:
+a saved `SplitConfig` turned into rectangles (including that they always tile the plate and that
+the depth cap holds), the initials that stand in when there is no division to draw, how many tile
+columns fit a width, and that "on screen" beats "running" when a Space is both. The api is
+`compileOnly` for the plugin, so the tests take it onto their own runtime classpath through the
+same conditional - the local sibling jar, or CI's downloaded one.
 
 ## Workflow Rules
 
@@ -53,6 +56,7 @@ TopofmindComponent      owns TabTreeState, TabDragState, SplitPaneExpansion and 
 TopOfMindPanel          the panel: the tree, workspace switching, the move, and the dialogs
 WorkspaceFloors         the workspaces as isometric storeys, between the tree and the footer
 WorkspaceFooter         the workspace actions + the search button, pinned under the tree
+SpacePicker             the Space picker: a tile per Space, each drawing that Space's panes
 QuickSwitcher           the switcher over EVERY window's tabs: search, arrows, Enter
 PanelDialogs            which dialog a panel is showing, and which panel a request lands on
 TabRow                  one tab: 32dp flush row, drag source, context menu
@@ -250,11 +254,11 @@ delete one - and then, rightmost, a search button that raises the quick switcher
   a width the user can reach by dragging.
 - **Dialogs go through `genericDialogProvider`, not hand-drawn Compose ones.** Its prompts are
   suspend calls that return the answer, so there is no dialog-visibility state to hold, and the host
-  draws them - which is what puts them above a GPU-composited browser surface. The workspace menu is
-  the exception, because it has to mark three states per row and `ContextMenuItemData` has no
-  trailing icon: that one is a `BossPopup`, which is the same guarantee for a non-modal. **Never a
-  raw Compose `Dialog` or `Popup`** - under JxBrowser HARDWARE_ACCELERATED they render behind the
-  page.
+  draws them - which is what puts them above a GPU-composited browser surface. The Space picker is
+  the exception, because it has to mark three states per Space and draw each one's layout, and
+  `ContextMenuItemData` carries neither: that one is a `BossDialog`, which is the same guarantee
+  for a modal this plugin draws itself. **Never a raw Compose `Dialog` or `Popup`** - under
+  JxBrowser HARDWARE_ACCELERATED they render behind the page.
 - **`WorkspaceDataProvider.deleteWorkspace` takes a NAME**, where the rest of the interface is keyed
   by id. Passing an id deletes nothing and reports nothing.
 - **Open Workspace Folder and Reset to Default are deliberately omitted.** They need
@@ -275,6 +279,88 @@ delete one - and then, rightmost, a search button that raises the quick switcher
   the host's own action row (`SIDEBAR_ICON_SIZE` = 32dp buttons wrapping `BossActionButton`'s
   20dp `iconSize` at 2dp content padding); a 14dp glyph is a tab row's bare icon and read as a
   smaller class of control next to the host's.
+
+### The Space picker
+
+`SpacePicker.kt` is THE Space picker. The footer's leftmost button raises it, and so does the
+host's Space button in the vertical and top bars, which dispatches `open-workspace-picker` at this
+plugin (see the table above). It was a title, a `BossSearchBar` and a scrolling column of text rows
+carrying a dot; it is a grid of tiles now, each one drawing that Space's panes.
+
+- **A tile shows the SPACE'S LAYOUT, and that is the point.** A big pane beside two stacked ones
+  looks nothing like a 50/50 split, so the grid is something you recognise rather than something you
+  read - which is the whole reason a tile beats a row here. The pattern is the host's home screen
+  (`components/home/HomeToolCard.kt` and `HomeToolIcon.kt`): a bordered tile, an icon slot, a
+  centred name under it. Read those, never import them - a plugin cannot reach a host internal.
+- **It is the home tile's FEEL, not its numbers.** The height is the host's 104dp because the
+  content needs it, but the minimum tile width is 120dp where the host uses 132: a home tile sits
+  in the whole window and these sit in a 320..480dp dialog, where 132 buys two columns and 24dp of
+  dead air instead of two tiles. 120 gives two columns at the dialog's narrowest and three at its
+  widest, about 140dp wide either way.
+- **`SpaceLayoutPlan` reads the SAVED `SplitConfig`, where the floors view reads the live tree.**
+  Not a duplicate of `WorkspaceFloorPlan` and not a candidate for merging with it: this dialog lists
+  Spaces that are running AND Spaces that are not, and a Space sitting on disk has no live tree to
+  read. One source for the whole grid beats two ways of drawing twenty tiles. The cost is stated
+  rather than hidden - split a running Space without saving and its tile still shows the split it
+  was saved with. The floors stack an inch above the dialog is the live picture; this is the picture
+  of the file.
+- **Every split is drawn as EQUAL HALVES, because `SplitConfig` carries no ratio.**
+  `VerticalSplit` has a left and a right and says nothing about where the divider sits, so a split
+  dragged to 20/80 comes back as halves. Same caveat as `SplitPositionGlyph` and
+  `WorkspaceFloorPlan`, same reason: proportion is not in the data, and no ratio is invented from
+  tab counts or anything else.
+- **The recursion is capped at three levels.** `SplitConfig` nests without limit and the 56dp frame
+  does not grow. At depth 3 the narrowest pane is an eighth of the frame - 7dp, of which 5dp
+  survives the gutter either side - and at depth 4 it is 3.5dp, which reads as a stripe. Past the
+  cap the pane CONTAINING the split is drawn whole, so the tile says "there is a pane here" and
+  stops claiming to have counted what is inside it. `SpacePickerTest` pins that the rectangles
+  always tile the plate exactly, whatever the nesting, which is what catches both a bad midpoint
+  and a cap that drops the pane it was supposed to draw.
+- **Panes are divided by the GROUND, not by a stroke.** Each pane is inset half a gutter so what
+  separates two of them is the frame's own `BackgroundColor` showing through, which is what the gap
+  between two panes of a real window looks like. The first render stroked each pane in
+  `BorderColor` instead: two greys eight points apart put a divider there that had to be hunted
+  for, and a two-row Space read as one block.
+- **Initials are the fallback, and they are the COMMON path.** A frame with a single rectangle in it
+  is the frame, so a Space with no division would be a tile identical to every other unsplit one.
+  One pane means the frame becomes that pane, filled for its state, with one or two letters of the
+  Space's name written across it - `initialsFor`, copied from the host's function of the same name
+  behaviour for behaviour (initial of each of the first two words, first character of anything
+  unsplittable, "?" for blank). Most saved Spaces are single-pane, so this is not an error path.
+- **The three states are marked three ways over, and all three stay distinct.** The border, the
+  pane fill and the line under the name move together: the Space on SCREEN gets an accent border,
+  panes 70% of the way to the accent, a filled dot and the words "On screen"; one merely RUNNING
+  behind it gets panes 30% of the way there, an outline dot and "Running"; one that only exists on
+  DISK gets the border token, grey panes and nothing at all. The dot and its colour are the ones
+  the text rows used (`Icons.Filled.Circle` in `SuccessColor`, `Icons.Outlined.Circle` in
+  `TextSecondary`) so nobody has to learn a second vocabulary between here and the floors stack.
+  The fills are opaque BLENDS off one surface token rather than the accent at three alphas, for the
+  reason the floors view writes up.
+- **The name reserves TWO LINES whether it needs them or not.** With the block free to be one line
+  or two, a Space called "ok" centred its thumbnail 7dp higher than the one beside it, and a grid
+  whose icons do not line up reads as a mistake. Two lines because a Space name is a project name.
+- **A fixed slot for the state line, for the same reason** - and it is 14dp, not 12: a `Text` given
+  less height than its line box needs CLIPS rather than overflowing, and the first render came back
+  with the bottom third of "On screen" sliced off in a tile with 20dp of unused room below it.
+- **A `FlowRow`, not a `LazyVerticalGrid`.** The grid is capped at 340dp and a user's Spaces number
+  in the tens, so there is nothing for a lazy layout to save - and a lazy grid inside a `Column`
+  needs a height of its own, which this does not have. `BoxWithConstraints` is what makes the tiles
+  flush: `tileColumnsFor` takes the column count off the width and the leftover is handed back to
+  the tiles equally. Not a `Row` either, for the reason the footer's KDoc measures.
+- **The cap shows three rows and the top of a fourth**, which is the scroll affordance: rounded down
+  to exactly three rows the grid would look complete at any count. There is no scrollbar, unlike the
+  floors stack, because a half-drawn row of tiles says "there is more" on its own where a stack of
+  whole floors does not.
+- **The dialog is intrinsically at its MAX width.** `requiredWidthIn(min, max)` hands its child a
+  320..480dp constraint and the search bar fills it, so the card is 480dp whatever is in it - the
+  minimum only matters if that ever stops being true. Deliberate: a width that tracked the tile
+  count would resize the dialog as the user typed a query.
+- **Both empty states are kept and read differently**: no saved Spaces at all is a fact about the
+  app, nothing matching a query is a fact about the query.
+- **`SpacePickerContent` is `internal` so it can be rendered off-screen** into an
+  `ImageComposeScene` and looked at. That is not a nicety - the clipped state line, the invisible
+  pane divider and the misaligned thumbnails were all found by looking at a PNG and none of them by
+  reasoning about the arithmetic. The dialog itself cannot be rendered that way: it is a window.
 
 ### The floors view
 
