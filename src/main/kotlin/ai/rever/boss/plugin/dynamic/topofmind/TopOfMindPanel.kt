@@ -189,6 +189,26 @@ private fun TabTree(
         }
     }
 
+    // The same spring-loading for a collapsed PANE. A pane that is not the one being worked in
+    // shows one row and a summary of favicons, so the tabs a drop would land between are not on
+    // screen to aim at - and that row carries no index precisely because it is not at the position
+    // it appears to be.
+    //
+    // `paneExpansion.hover` is what a pointer resting on a pane header already does, so this is the
+    // drag reaching the same choice the mouse would: sticky, one pane open at a time, and nothing
+    // undoes it when the pointer leaves. Same wait as a workspace gets, for the same reason - a
+    // drag on its way somewhere else crosses panes, and reflowing at each would move the target out
+    // from under the pointer.
+    val hoveredPaneForDrop = dragState.hoveredPane
+    LaunchedEffect(hoveredPaneForDrop, dragState.dragging) {
+        val pane = hoveredPaneForDrop ?: return@LaunchedEffect
+        if (dragState.dragging == null) return@LaunchedEffect
+        delay(SPRING_LOAD_DELAY_MS)
+        if (dragState.dragging != null && dragState.hoveredPane == pane) {
+            paneExpansion.hover(pane.panelId)
+        }
+    }
+
     LaunchedEffect(dragState.recentlyMovedTabId) {
         if (dragState.recentlyMovedTabId != null) {
             delay(MOVED_FLASH_MS)
@@ -498,6 +518,10 @@ private fun TabStructure(
                     // pane is collapsed to a single summary row, where the row on screen is not at
                     // the position it claims. Null there, so a collapsed pane appends.
                     indexInPane = index.takeIf { paneShowsEveryTab },
+                    // Only the last row draws a line BELOW itself; every other slot is drawn by the
+                    // row beneath it. Without that, the boundary between two rows would get two
+                    // lines and the slot after the final row would get none.
+                    isLastInPane = paneShowsEveryTab && index == structure.lastIndex,
                     activeTabsProvider = activeTabsProvider,
                     contextMenuProvider = contextMenuProvider,
                     dragState = dragState,
