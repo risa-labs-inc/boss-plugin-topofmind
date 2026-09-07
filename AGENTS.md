@@ -467,6 +467,25 @@ else would notice if it flipped.
   otherwise excluded, since dropping a tab back where it is does nothing - a POSITION in that pane
   is the exception, because a reorder is a real move. Its own row is excluded whichever half you are
   over, since both name a position it already holds.
+- **The slot is drawn as an INSERTION LINE, once.** Every slot is drawn by the row BENEATH it -
+  slot k is the top edge of row k - so a boundary two rows touch is drawn once rather than by both
+  of them; the one slot with no row beneath it is the last, drawn on the bottom edge of the final
+  row, which is what `isLastInPane` is for. `insertionEdgeFor` is that rule as a pure function, and
+  `InsertionEdgeTest` pins it including "every slot of a pane is drawn exactly once" - two mutations
+  fail it, one doubling the boundary and one losing the final slot. The line is drawn INSIDE the row
+  because there is nothing between rows to draw in: the list has no spacing, and a slot is an edge.
+- **The pane fill and the line say different things, and the pane needs both.** The fill is which
+  pane will take the tab, the line is where in it. Once a drop could carry a position, the fill
+  alone left the slot invisible, and a line alone would not say at a glance which pane it belonged
+  to. Both come from ONE `derivedStateOf` over the pointer, because reading either directly makes
+  every row a per-frame subscription to a value that changes a handful of times in a drag - the same
+  reason the ghost puts `overTarget` behind one.
+- **A collapsed PANE springs open under a dragged tab too**, after the same 550ms a workspace gets.
+  A pane that is not being worked in shows one row and a favicon summary, so the tabs a drop would
+  land between are not on screen to aim at - and that row deliberately carries no index, because it
+  is not at the position it appears to be. It goes through `paneExpansion.hover`, which is what a
+  pointer resting on a pane header already does, so the drag reaches the same sticky choice a mouse
+  would rather than adding a second notion of "this pane is open".
 - **A pane with no tabs cannot be a drop target at all.** The tree is built from `ActiveTabData`, so
   an empty pane contributes no id and draws no header. Dropping on the workspace header and letting
   the host pick is the route to one.

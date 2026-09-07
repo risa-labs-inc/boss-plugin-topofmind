@@ -85,6 +85,45 @@ private const val GHOST_ALPHA = 0.95f
 
 /** How strongly a row fills when its pane is the drop target. Quieter than a selection. */
 private const val PANE_DROP_FILL_ALPHA = 0.14f
+
+/** The insertion line's thickness. A hairline reads as a divider; this reads as a place. */
+private val INSERTION_LINE = 2.dp
+
+/**
+ * What a drag in flight asks this row to draw.
+ *
+ * [paneFilled] is "your pane will take the tab", [line] is "and it will land at this edge of you",
+ * null for neither. One value rather than two, because both are derived from one pointer read and
+ * splitting them would mean two subscriptions to it.
+ */
+private data class DropMarks(
+    val paneFilled: Boolean,
+    val line: Alignment?,
+)
+
+/**
+ * Which edge of the row at [indexInPane] draws the insertion line for slot [hoveredIndex], if any.
+ *
+ * Every slot is drawn by the row BENEATH it - slot k is the top edge of row k - so a boundary
+ * between two rows is drawn once rather than by both of the rows that touch it. The one slot with no
+ * row beneath it is the last, drawn on the bottom edge of the final row, which is what
+ * [isLastInPane] is for.
+ *
+ * Null when either index is absent: a pane header carries no slot, and a row that cannot honestly
+ * name a position carries no index (see `TabRow.indexInPane`).
+ */
+internal fun insertionEdgeFor(
+    hoveredIndex: Int?,
+    indexInPane: Int?,
+    isLastInPane: Boolean,
+): Alignment? {
+    if (hoveredIndex == null || indexInPane == null) return null
+    return when (hoveredIndex - indexInPane) {
+        0 -> Alignment.TopCenter
+        1 -> Alignment.BottomCenter.takeIf { isLastInPane }
+        else -> null
+    }
+}
 private val GHOST_MAX_WIDTH = 220.dp
 /**
  * Where the pointer sits inside the ghost, as a fraction of its width from the leading edge.
@@ -145,6 +184,14 @@ internal fun TabRow(
      * collapsed pane keeps as its summary - because a drop there has no index to mean.
      */
     indexInPane: Int? = null,
+    /**
+     * Whether this is the LAST row of its pane.
+     *
+     * Only the last row draws an insertion line below itself. Every slot between two rows is drawn
+     * by the row beneath it, so without this the boundary between rows would get two lines and the
+     * slot after the final row would get none.
+     */
+    isLastInPane: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -157,11 +204,31 @@ internal fun TabRow(
     // The two selected strengths are the point - accent for the pane you are working in, a quiet
     // grey for every other pane's current tab - so several panes can each show theirs without four
     // rows all claiming to be the live one.
-    // Whether the pane this row belongs to is the one a drag is over. The whole pane lights, rows
-    // and header alike, because the pane is what the drop names - lighting only the row under the
-    // cursor would promise a position this drop does not carry.
-    val paneIsDropTarget =
-        dragState?.hoveredPane == TabDragState.PaneTarget(tab.workspaceId, tab.panelId)
+    // Two answers about this drag, read through ONE derivedStateOf.
+    //
+    // Both come from the pointer, which moves every frame, so reading them directly would make this
+    // row a per-frame subscription to values that change a handful of times in a whole drag. This
+    // is the same reason the ghost puts `overTarget` behind derivedStateOf.
+    //
+    // The pane fill says WHICH PANE will take the tab; the line says WHERE IN IT. The pane needed
+    // both once a drop could carry a position: the fill alone named a pane and left the slot
+    // invisible, and a line alone would not say which pane it belonged to at a glance.
+    val paneTarget = remember(tab.workspaceId, tab.panelId) {
+        TabDragState.PaneTarget(tab.workspaceId, tab.panelId)
+    }
+    val dropMarks by remember(dragState, paneTarget, indexInPane, isLastInPane) {
+        derivedStateOf {
+            if (dragState == null || dragState.hoveredPane != paneTarget) {
+                DropMarks(paneFilled = false, line = null)
+            } else {
+                DropMarks(
+                    paneFilled = true,
+                    line = insertionEdgeFor(dragState.hoveredIndex, indexInPane, isLastInPane),
+                )
+            }
+        }
+    }
+    val paneIsDropTarget = dropMarks.paneFilled
 
     val fill =
         when {
@@ -229,6 +296,22 @@ internal fun TabRow(
                 .hoverable(interactionSource)
                 .clickable(onClick = onClick),
     ) {
+        // Above the row's content, and inset to where that content starts so it reads as a place in
+        // this list rather than as a rule across the panel. It is drawn INSIDE the row rather than
+        // between rows because there is nothing between rows to draw in: the list has no spacing,
+        // and a slot is an edge of a row.
+        dropMarks.line?.let { edge ->
+            Box(
+                modifier =
+                    Modifier
+                        .align(edge)
+                        .fillMaxWidth()
+                        .padding(start = indent + ROW_INSET, end = ROW_INSET)
+                        .height(INSERTION_LINE)
+                        .background(BossThemeColors.AccentColor, ROW_RADIUS),
+            )
+        }
+
         Row(
             modifier =
                 Modifier
