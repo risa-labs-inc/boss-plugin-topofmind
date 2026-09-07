@@ -435,7 +435,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
                     {
                         close(
                             "Close ${tabCountPhrase(tabs.size)} in \"${node.name}\"? " +
-                                "Tabs close in that workspace whether or not it is on screen, " +
+                                "Tabs close in that space whether or not it is on screen, " +
                                 "and this cannot be undone.",
                             tabs,
                         )

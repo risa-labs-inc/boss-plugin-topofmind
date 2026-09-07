@@ -251,7 +251,7 @@ private fun QuickSwitcherBody(
         BossSearchBar(
             query = query,
             onQueryChange = onQueryChange,
-            placeholder = "Search tabs by title, address or workspace",
+            placeholder = "Search tabs by title, address or space",
             modifier = Modifier.fillMaxWidth().height(SEARCH_HEIGHT).focusRequester(searchFocus),
         )
         Spacer(modifier = Modifier.height(8.dp))
@@ -488,7 +488,7 @@ private fun switcherRows(
     groups.forEach { (key, groupTabs) ->
         rows.add(
             SwitcherRow.Group(
-                workspaceName = groupTabs.first().workspaceName.ifEmpty { "Workspace" },
+                workspaceName = groupTabs.first().workspaceName.ifEmpty { "Space" },
                 elsewhere = thisWindowId != null && key.first != thisWindowId,
             ),
         )

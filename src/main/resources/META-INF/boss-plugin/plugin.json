@@ -7,7 +7,7 @@
   "minBossVersion": "9.5.9",
   "mainClass": "ai.rever.boss.plugin.dynamic.topofmind.TopofmindDynamicPlugin",
   "type": "panel",
-  "description": "Every open tab across every workspace, movable between them",
+  "description": "Every open tab across every space, movable between them",
   "author": "Risa Labs",
   "url": "https://github.com/risa-labs-inc/boss-plugin-topofmind",
   "panel": {
