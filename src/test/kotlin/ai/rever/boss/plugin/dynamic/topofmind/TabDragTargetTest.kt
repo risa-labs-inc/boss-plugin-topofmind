@@ -40,8 +40,8 @@ class TabDragTargetTest {
     ): TabDragState =
         TabDragState().apply {
             registerTarget("ws-b", header)
-            registerPaneTarget(TabDragState.PaneTarget("ws-b", "main"), leftPane)
-            registerPaneTarget(TabDragState.PaneTarget("ws-b", "right"), rightPane)
+            registerPaneTarget("pane:ws-b:main", TabDragState.PaneTarget("ws-b", "main"), leftPane)
+            registerPaneTarget("pane:ws-b:right", TabDragState.PaneTarget("ws-b", "right"), rightPane)
             startDrag(dragged, point)
         }
 
@@ -93,7 +93,7 @@ class TabDragTargetTest {
         val state =
             TabDragState().apply {
                 registerTarget("ws-b", leftPane)
-                registerPaneTarget(TabDragState.PaneTarget("ws-b", "right"), leftPane)
+                registerPaneTarget("pane:ws-b:right", TabDragState.PaneTarget("ws-b", "right"), leftPane)
                 startDrag(tab("t", "ws-a", "main"), leftPane.center)
             }
 
@@ -117,9 +117,79 @@ class TabDragTargetTest {
         val target = TabDragState.PaneTarget("ws-b", "right")
         val state = stateOver(rightPane.center, tab("t", "ws-a", "main"))
 
-        state.registerPaneTarget(target, rightPane.translate(0f, 5f))
-        state.unregisterPaneTarget(target, rightPane)
+        state.registerPaneTarget("pane:ws-b:right", target, rightPane.translate(0f, 5f))
+        state.unregisterPaneTarget("pane:ws-b:right", rightPane)
 
+        assertEquals(target, state.hoveredPane)
+    }
+
+    @Test
+    fun `the half of a row the pointer is in picks above or below it`() {
+        val target = TabDragState.PaneTarget("ws-b", "right")
+        val row = Rect(0f, 100f, 100f, 120f)
+        val state =
+            TabDragState().apply {
+                registerPaneTarget("tab:two", target, row, index = 2)
+                startDrag(tab("t", "ws-a", "main"), Offset(50f, 104f))
+            }
+
+        // Top half: above the tab at index 2, so index 2.
+        assertEquals(2, state.hoveredIndex)
+        // Bottom half: below it.
+        state.updateDrag(Offset(50f, 116f))
+        assertEquals(3, state.hoveredIndex)
+        assertEquals(3, state.endDrag()?.targetIndex)
+    }
+
+    @Test
+    fun `a pane header names the pane and no position`() {
+        val state = stateOver(rightPane.center, tab("t", "ws-a", "main"))
+
+        assertEquals(TabDragState.PaneTarget("ws-b", "right"), state.hoveredPane)
+        assertNull(state.hoveredIndex)
+        assertNull(state.endDrag()?.targetIndex)
+    }
+
+    @Test
+    fun `a row of the tab's own pane is a reorder, but its own row is not`() {
+        // Its own pane is otherwise refused - dropping a tab back where it is does nothing - and a
+        // POSITION in that pane is the exception, because a reorder is a real move.
+        val target = TabDragState.PaneTarget("ws-a", "main")
+        val other = Rect(0f, 100f, 100f, 120f)
+        val own = Rect(0f, 120f, 100f, 140f)
+        val dragged = tab("t", "ws-a", "main")
+        val state =
+            TabDragState().apply {
+                registerPaneTarget("tab:other", target, other, index = 0)
+                registerPaneTarget("tab:t", target, own, index = 1)
+                startDrag(dragged, other.center)
+            }
+
+        assertEquals(target, state.hoveredPane)
+        assertEquals(true, state.hoveredReorder)
+
+        // Over its OWN row, both halves name a position it already holds.
+        state.updateDrag(own.center)
+        assertNull(state.hoveredPane)
+        assertNull(state.endDrag())
+    }
+
+    @Test
+    fun `every row of a pane is its own rectangle for the same pane`() {
+        // Keyed by pane, the last row to compose would be the only rectangle left and the rest of
+        // the pane would silently stop accepting drops. Rows are why the key is a registration.
+        val target = TabDragState.PaneTarget("ws-b", "right")
+        val rowOne = Rect(0f, 120f, 100f, 140f)
+        val rowTwo = Rect(0f, 140f, 100f, 160f)
+        val state =
+            TabDragState().apply {
+                registerPaneTarget("tab:one", target, rowOne, index = 0)
+                registerPaneTarget("tab:two", target, rowTwo, index = 1)
+                startDrag(tab("t", "ws-a", "main"), rowOne.center)
+            }
+
+        assertEquals(target, state.hoveredPane)
+        state.updateDrag(rowTwo.center)
         assertEquals(target, state.hoveredPane)
     }
 }

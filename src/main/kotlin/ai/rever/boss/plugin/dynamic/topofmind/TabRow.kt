@@ -82,6 +82,9 @@ private const val UNSELECTED_TEXT_ALPHA = 0.8f
 private const val DRAG_SOURCE_ALPHA = 0.3f
 private const val MOVED_FLASH_ALPHA = 0.28f
 private const val GHOST_ALPHA = 0.95f
+
+/** How strongly a row fills when its pane is the drop target. Quieter than a selection. */
+private const val PANE_DROP_FILL_ALPHA = 0.14f
 private val GHOST_MAX_WIDTH = 220.dp
 /**
  * Where the pointer sits inside the ghost, as a fraction of its width from the leading edge.
@@ -134,7 +137,14 @@ internal fun TabRow(
      * The pane is null from the context menu, which lists workspaces and lets the host pick the
      * pane, and non-null from a drop onto a pane header.
      */
-    onMoveTo: (String, String?) -> Unit,
+    onMoveTo: (String, String?, Int?) -> Unit,
+    /**
+     * This tab's position in its pane, so a drop on this row can name a slot above or below it.
+     *
+     * Null where the row is not a positioned member of a list - the ghost, and the one row a
+     * collapsed pane keeps as its summary - because a drop there has no index to mean.
+     */
+    indexInPane: Int? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -147,9 +157,16 @@ internal fun TabRow(
     // The two selected strengths are the point - accent for the pane you are working in, a quiet
     // grey for every other pane's current tab - so several panes can each show theirs without four
     // rows all claiming to be the live one.
+    // Whether the pane this row belongs to is the one a drag is over. The whole pane lights, rows
+    // and header alike, because the pane is what the drop names - lighting only the row under the
+    // cursor would promise a position this drop does not carry.
+    val paneIsDropTarget =
+        dragState?.hoveredPane == TabDragState.PaneTarget(tab.workspaceId, tab.panelId)
+
     val fill =
         when {
             justMoved -> BossThemeColors.AccentColor.copy(alpha = MOVED_FLASH_ALPHA)
+            paneIsDropTarget -> BossThemeColors.AccentColor.copy(alpha = PANE_DROP_FILL_ALPHA)
             isSelected && isFocused -> BossThemeColors.AccentColor.copy(alpha = SELECTED_FILL_ALPHA)
             isSelected -> BossColors.contextMenuBorder.copy(alpha = INACTIVE_FILL_ALPHA)
             isHovered -> BossColors.darkSurface.copy(alpha = HOVER_FILL_ALPHA)
@@ -158,7 +175,32 @@ internal fun TabRow(
 
     val dragModifier =
         if (dragState != null) {
-            rememberTabDragModifier(tab, dragState) { onMoveTo(it.targetWorkspaceId, it.targetPanelId) }
+            rememberTabDragModifier(tab, dragState) {
+                onMoveTo(it.targetWorkspaceId, it.targetPanelId, it.targetIndex)
+            }
+        } else {
+            Modifier
+        }
+
+    // A row is a drop target for its OWN pane, not only the pane's header.
+    //
+    // The header is 24dp of a pane that is mostly rows, so aiming at it was the whole gesture; and
+    // an expanded pane - which the pane being worked in always is - shows its header above a column
+    // of rows that accepted nothing. Dropping "on a pane" now means dropping anywhere in it.
+    //
+    // Keyed per TAB, because every row in a pane registers a rectangle for the same pane and a
+    // per-pane key would leave only the last one. The row is also the drag SOURCE, which does not
+    // clash: this adds no pointer input, only `onGloballyPositioned`.
+    val paneTargetModifier =
+        if (dragState != null) {
+            Modifier.paneDropTarget(
+                key = "tab:${tab.tabId}",
+                target = TabDragState.PaneTarget(tab.workspaceId, tab.panelId),
+                dragState = dragState,
+                // The row's own position, which is what lets a drop on its top half land above it
+                // and one on its bottom half below it.
+                index = indexInPane,
+            )
         } else {
             Modifier
         }
@@ -182,6 +224,7 @@ internal fun TabRow(
                 .alpha(if (isDragSource) DRAG_SOURCE_ALPHA else 1f)
                 .then(contextMenuModifier)
                 .then(dragModifier)
+                .then(paneTargetModifier)
                 .background(fill, ROW_RADIUS)
                 .hoverable(interactionSource)
                 .clickable(onClick = onClick),
@@ -365,7 +408,7 @@ private fun tabMenuItems(
     transferTargets: List<TransferTarget>,
     onFocus: () -> Unit,
     onClose: () -> Unit,
-    onMoveTo: (String, String?) -> Unit,
+    onMoveTo: (String, String?, Int?) -> Unit,
 ): List<ContextMenuItemData> =
     buildList {
         add(ContextMenuItemData(label = "Focus", icon = Icons.AutoMirrored.Outlined.OpenInNew, onClick = onFocus))
@@ -378,7 +421,7 @@ private fun tabMenuItems(
                         transferTargets.map { target ->
                             ContextMenuItemData(
                                 label = target.name,
-                                onClick = { onMoveTo(target.workspaceId, null) },
+                                onClick = { onMoveTo(target.workspaceId, null, null) },
                             )
                         },
                 ),

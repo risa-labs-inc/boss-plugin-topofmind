@@ -200,9 +200,10 @@ private fun TabTree(
         tab: ActiveTabData,
         targetWorkspaceId: String,
         targetPanelId: String? = null,
+        targetIndex: Int? = null,
     ) {
         scope.launch {
-            if (TabTransfer.move(activeTabsProvider, tab.tabId, targetWorkspaceId, targetPanelId)) {
+            if (TabTransfer.move(activeTabsProvider, tab.tabId, targetWorkspaceId, targetPanelId, targetIndex)) {
                 dragState.recentlyMovedTabId = tab.tabId
                 // Do not wait for the host's poll: the whole point of the flash is that the row
                 // has already reappeared under its new workspace by the time you look.
@@ -389,7 +390,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
     paneExpansion: SplitPaneExpansion,
     transferSupported: Boolean,
     scope: CoroutineScope,
-    onMove: (ActiveTabData, String, String?) -> Unit,
+    onMove: (ActiveTabData, String, String?, Int?) -> Unit,
     onCloseTabs: ((String, List<ActiveTabData>) -> Unit)?,
 ) {
     if (node !is TabTreeNode.WorkspaceNode) return
@@ -463,9 +464,18 @@ private fun TabStructure(
     dragState: TabDragState?,
     paneExpansion: SplitPaneExpansion,
     transferSupported: Boolean,
-    onMove: (ActiveTabData, String, String?) -> Unit,
+    onMove: (ActiveTabData, String, String?, Int?) -> Unit,
     onCloseTabs: ((String, List<ActiveTabData>) -> Unit)?,
     sectionPath: String = "",
+    /**
+     * Whether this list is every tab of its pane, in order.
+     *
+     * True for an expanded pane, whose `structure` IS the host's tab list for it, so a row's
+     * position here is the index a drop can name. False for the single summary row a COLLAPSED pane
+     * keeps: that row is whichever tab the pane is showing, not the one at position zero, so an
+     * index taken from it would move a tab somewhere the user did not point at. Those rows append.
+     */
+    paneShowsEveryTab: Boolean = true,
 ) {
     // Indexed so a split section can tell whether it is the first under its parent: the rule
     // divides one pane from the previous one, and the first has a workspace header above it
@@ -482,6 +492,12 @@ private fun TabStructure(
                     }
                 TabRow(
                     tab = tab,
+                    // Position within the PANE, not within this structure list: the index a drop
+                    // names is an index into the host's tab list for that pane, and `structure` is
+                    // that list exactly - one section per pane, TabItems in order - EXCEPT when a
+                    // pane is collapsed to a single summary row, where the row on screen is not at
+                    // the position it claims. Null there, so a collapsed pane appends.
+                    indexInPane = index.takeIf { paneShowsEveryTab },
                     activeTabsProvider = activeTabsProvider,
                     contextMenuProvider = contextMenuProvider,
                     dragState = dragState,
@@ -497,7 +513,7 @@ private fun TabStructure(
                     indent = (INDENT_STEP * (depth + 1)).dp,
                     onClick = { activeTabsProvider.selectTab(tab.tabId, tab.panelId) },
                     onClose = { activeTabsProvider.closeTab(tab.tabId) },
-                    onMoveTo = { workspaceId, panelId -> onMove(tab, workspaceId, panelId) },
+                    onMoveTo = { workspaceId, panelId, index -> onMove(tab, workspaceId, panelId, index) },
                 )
             }
 
@@ -589,6 +605,9 @@ private fun TabStructure(
                         } else {
                             shownTab?.let { listOf(WorkspaceTabStructure.TabItem(it)) }.orEmpty()
                         },
+                    // A collapsed pane's one row is the tab it is SHOWING, not the tab at index
+                    // zero, so nothing drawn there can name a position.
+                    paneShowsEveryTab = isExpanded,
                     workspaceId = workspaceId,
                     workspaceName = workspaceName,
                     depth = depth + 1,

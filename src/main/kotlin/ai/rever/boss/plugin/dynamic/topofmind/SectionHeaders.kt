@@ -263,15 +263,22 @@ internal fun WorkspaceHeader(
  * node AFTER the replacement has registered, and an unguarded removal would drop a live target.
  */
 @Composable
-private fun Modifier.paneDropTarget(
+internal fun Modifier.paneDropTarget(
+    /**
+     * Identifies this REGISTRATION, not the pane: a pane's header and each of its tab rows all
+     * point at one pane and each has its own rectangle. See `TabDragState.paneTargets`.
+     */
+    key: String,
     target: TabDragState.PaneTarget,
     dragState: TabDragState,
+    /** This tab's position in its pane, or null for a pane header, which appends. */
+    index: Int? = null,
 ): Modifier {
-    var bounds by remember(target) { mutableStateOf(Rect.Zero) }
+    var bounds by remember(key) { mutableStateOf(Rect.Zero) }
 
-    DisposableEffect(target, bounds) {
-        if (bounds != Rect.Zero) dragState.registerPaneTarget(target, bounds)
-        onDispose { if (bounds != Rect.Zero) dragState.unregisterPaneTarget(target, bounds) }
+    DisposableEffect(key, bounds) {
+        if (bounds != Rect.Zero) dragState.registerPaneTarget(key, target, bounds, index)
+        onDispose { if (bounds != Rect.Zero) dragState.unregisterPaneTarget(key, bounds) }
     }
 
     return this.onGloballyPositioned { bounds = it.boundsInWindow() }
@@ -418,7 +425,11 @@ internal fun SplitSectionHeader(
                         },
                     ).then(
                         if (paneTarget != null && dragState != null) {
-                            Modifier.paneDropTarget(paneTarget, dragState)
+                            Modifier.paneDropTarget(
+                                key = "pane:${paneTarget.workspaceId}:${paneTarget.panelId}",
+                                target = paneTarget,
+                                dragState = dragState,
+                            )
                         } else {
                             Modifier
                         },
