@@ -1,8 +1,8 @@
 package ai.rever.boss.plugin.dynamic.topofmind
 
+import ai.rever.boss.plugin.api.Panel.Companion.bottom
 import ai.rever.boss.plugin.api.Panel.Companion.left
 import ai.rever.boss.plugin.api.Panel.Companion.top
-import ai.rever.boss.plugin.api.Panel.Companion.bottom
 import ai.rever.boss.plugin.api.PanelId
 import ai.rever.boss.plugin.api.PanelInfo
 import androidx.compose.material.icons.Icons
