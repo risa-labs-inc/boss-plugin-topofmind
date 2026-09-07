@@ -34,7 +34,6 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.SpaceDashboard
 import androidx.compose.material.icons.outlined.Tab
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.runtime.Composable
@@ -499,7 +498,7 @@ private fun tabMenuItems(
             add(
                 ContextMenuItemData(
                     label = "Move to space",
-                    icon = Icons.Outlined.SpaceDashboard,
+                    icon = SpaceIcon,
                     subMenu =
                         transferTargets.map { target ->
                             ContextMenuItemData(

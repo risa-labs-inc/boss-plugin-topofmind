@@ -28,7 +28,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.Surface
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.SpaceDashboard
 import androidx.compose.material.icons.outlined.Tab
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,7 +84,7 @@ fun TopOfMindContent(
             Surface(modifier = Modifier.fillMaxSize(), color = BossThemeColors.SurfaceColor) {
                 Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
                     BossEmptyState(
-                        icon = Icons.Outlined.SpaceDashboard,
+                        icon = SpaceIcon,
                         message = "Top of Mind",
                         description = "Active tabs provider not available",
                     )

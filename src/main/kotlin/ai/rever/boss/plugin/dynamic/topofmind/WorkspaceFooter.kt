@@ -43,7 +43,6 @@ import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.SpaceDashboard
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -245,7 +244,7 @@ private fun WorkspaceActions(
 
     if (splits != null) {
         FooterAction(
-            icon = Icons.Outlined.SpaceDashboard,
+            icon = SpaceIcon,
             description = "Open space",
             onClick = { panelDialogs.toggle(PanelDialog.WORKSPACE_PICKER) },
         ) {
