@@ -449,6 +449,24 @@ else would notice if it flipped.
 - **Its own pane is never a target**, and the guard is on the PANE id, not the workspace id. With the
   workspace id it would refuse every pane of the workspace the tab is in, which is exactly the case
   the pane targets were added for.
+- **Every TAB ROW is a drop target for its own pane, not just the pane header.** The header is 24dp
+  of a pane that is mostly rows, so aiming at it was the whole gesture - and an expanded pane, which
+  the pane being worked in always is, showed its header above a column of rows that accepted
+  nothing. `TabDragState.paneTargets` is keyed by REGISTRATION rather than by pane for this: a pane
+  has one rectangle per row plus its header, and keying by pane left only the last row to compose.
+  A row adds no pointer input, only `onGloballyPositioned`, so being a drop target does not clash
+  with being the drag source.
+- **A row also names a POSITION: the half of it the pointer is in.** Top half lands above that tab,
+  bottom half below it, which is what makes "move above or below this tab" a thing you can do. A
+  pane HEADER carries no index - it means the pane and nothing more - so a drop there appends. Two
+  cases deliberately carry no index either: the ghost, and the single summary row a COLLAPSED pane
+  keeps, because that row is whichever tab the pane is showing rather than the tab at position zero,
+  so an index taken from it would move a tab somewhere the user did not point at
+  (`paneShowsEveryTab`).
+- **A row of the tab's OWN pane is a reorder; its own row is not a target at all.** The pane is
+  otherwise excluded, since dropping a tab back where it is does nothing - a POSITION in that pane
+  is the exception, because a reorder is a real move. Its own row is excluded whichever half you are
+  over, since both name a position it already holds.
 - **A pane with no tabs cannot be a drop target at all.** The tree is built from `ActiveTabData`, so
   an empty pane contributes no id and draws no header. Dropping on the workspace header and letting
   the host pick is the route to one.

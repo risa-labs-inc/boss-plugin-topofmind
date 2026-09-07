@@ -32,15 +32,18 @@ class TabDragState {
     private val dropTargets = mutableStateMapOf<String, Rect>()
 
     /**
-     * Pane -> that split header's bounds, in window coordinates.
+     * Every rectangle that stands for a pane, keyed by whoever registered it.
+     *
+     * Keyed by REGISTRATION, not by pane, because a pane has several: its split header and one per
+     * tab row under it. Keyed by pane, the last row to compose would be the only rectangle left and
+     * the rest of the pane would quietly stop accepting drops.
      *
      * A separate map from [dropTargets] rather than one keyed by a nullable pane, because the two
      * answer different questions and a drop needs both: a pane target names where exactly, a
-     * workspace target says "you pick". They never overlap on screen - a workspace target is its
-     * header row and a pane target is a split header row further down - so [hoveredPane] winning
-     * over [hoveredWorkspaceId] is a rule about precision, not about geometry.
+     * workspace target says "you pick". [hoveredPane] winning over [hoveredWorkspaceId] is a rule
+     * about precision - on screen they do not overlap, since a workspace target is its header row.
      */
-    private val paneTargets = mutableStateMapOf<PaneTarget, Rect>()
+    private val paneTargets = mutableStateMapOf<String, PaneRegion>()
 
     /**
      * The tab that most recently landed somewhere, highlighted so the move is visible when the row
@@ -70,20 +73,28 @@ class TabDragState {
         if (dropTargets[workspaceId] == bounds) dropTargets.remove(workspaceId)
     }
 
-    /** Register (or re-register) one pane's header as a drop target. */
+    /**
+     * Register (or re-register) one rectangle that means "drop here to land in [target]".
+     *
+     * [key] identifies the REGISTRATION - a pane's header and each of its tab rows pass different
+     * ones - so that several rectangles can point at the same pane. See [paneTargets].
+     */
     fun registerPaneTarget(
+        key: String,
         target: PaneTarget,
         bounds: Rect,
+        /** This tab's position in its pane, or null for a pane header, which appends. */
+        index: Int? = null,
     ) {
-        paneTargets[target] = bounds
+        paneTargets[key] = PaneRegion(target, bounds, index)
     }
 
-    /** Forget a pane header that has left composition. Guarded like [unregisterTarget]. */
+    /** Forget a registration that has left composition. Guarded like [unregisterTarget]. */
     fun unregisterPaneTarget(
-        target: PaneTarget,
+        key: String,
         bounds: Rect,
     ) {
-        if (paneTargets[target] == bounds) paneTargets.remove(target)
+        if (paneTargets[key]?.bounds == bounds) paneTargets.remove(key)
     }
 
     fun startDrag(
@@ -122,14 +133,43 @@ class TabDragState {
      * already in is the second half of what pane targets are for.
      */
     val hoveredPane: PaneTarget?
+        get() = hoveredRegion()?.target
+
+    /**
+     * Where in the hovered pane a drop would land, or null to append.
+     *
+     * Non-null only over a tab ROW, which is what carries a position; a pane header names the pane
+     * and nothing more. Over its own pane this still answers, because a reorder within one pane is
+     * a real move - see [hoveredReorder].
+     */
+    val hoveredIndex: Int?
         get() {
-            val tab = dragging ?: return null
             val at = pointer.takeIf { it != Offset.Unspecified } ?: return null
-            return paneTargets.entries
-                .firstOrNull { (target, bounds) ->
-                    target.panelId != tab.panelId && bounds.contains(at)
-                }?.key
+            return hoveredRegion()?.slotFor(at.y)
         }
+
+    /**
+     * The rectangle under the pointer, or null.
+     *
+     * Its own PANE is excluded unless the region carries an index: dropping a tab back on its own
+     * pane does nothing, but dropping it above or below a particular tab of that pane is a reorder.
+     * The tab's own row is excluded either way - both halves of it name a position it already
+     * holds, and lighting it up would promise a move that is refused.
+     */
+    private fun hoveredRegion(): PaneRegion? {
+        val tab = dragging ?: return null
+        val at = pointer.takeIf { it != Offset.Unspecified } ?: return null
+        return paneTargets.entries
+            .firstOrNull { (key, region) ->
+                region.bounds.contains(at) &&
+                    key != "tab:${tab.tabId}" &&
+                    (region.index != null || region.target.panelId != tab.panelId)
+            }?.value
+    }
+
+    /** True when the drop would only change this tab's position, not the pane it is in. */
+    val hoveredReorder: Boolean
+        get() = hoveredPane?.let { it.panelId == dragging?.panelId } ?: false
 
     /**
      * End the drag and report where it landed, or null if it landed nowhere.
@@ -142,14 +182,16 @@ class TabDragState {
         val tab = dragging
         // A pane beats a workspace: it is the more precise answer to the same gesture, and the two
         // targets cannot be under the pointer at once anyway.
-        val pane = hoveredPane
+        val region = hoveredRegion()
+        val pane = region?.target
+        val index = pointer.takeIf { it != Offset.Unspecified }?.let { region?.slotFor(it.y) }
         val workspace = hoveredWorkspaceId
         dragging = null
         pointer = Offset.Unspecified
         if (tab == null) return null
         return when {
-            pane != null -> TransferRequest(tab, pane.workspaceId, pane.panelId)
-            workspace != null -> TransferRequest(tab, workspace, targetPanelId = null)
+            pane != null -> TransferRequest(tab, pane.workspaceId, pane.panelId, index)
+            workspace != null -> TransferRequest(tab, workspace, targetPanelId = null, targetIndex = null)
             else -> null
         }
     }
@@ -157,6 +199,25 @@ class TabDragState {
     fun cancelDrag() {
         dragging = null
         pointer = Offset.Unspecified
+    }
+
+    /**
+     * One registered rectangle, the pane it stands for, and where in that pane it inserts.
+     *
+     * [index] is the position of the TAB this rectangle belongs to, or null for a pane header - a
+     * header means the pane and no position in it, which is an append. A row uses the pointer's
+     * half to choose between its own index and the one after: dropping on the top half of a tab
+     * lands above it, on the bottom half below it.
+     */
+    private data class PaneRegion(
+        val target: PaneTarget,
+        val bounds: Rect,
+        val index: Int?,
+    ) {
+        fun slotFor(pointerY: Float): Int? {
+            val at = index ?: return null
+            return if (pointerY < bounds.center.y) at else at + 1
+        }
     }
 
     /** One pane of one workspace. Both halves, because a panel id is unique only within a tree. */
@@ -170,5 +231,7 @@ class TabDragState {
         val targetWorkspaceId: String,
         /** The pane to land in, or null to let the host pick the workspace's active one. */
         val targetPanelId: String?,
+        /** Where in that pane's list, or null to append. Only ever set alongside a pane. */
+        val targetIndex: Int?,
     )
 }

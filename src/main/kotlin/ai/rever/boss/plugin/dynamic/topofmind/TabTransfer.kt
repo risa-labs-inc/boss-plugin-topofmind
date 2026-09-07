@@ -86,16 +86,21 @@ object TabTransfer {
      * Suspending because the host has to marshal the transfer onto the UI thread; it returns false
      * for anything it will not do (unknown tab, destination not running, already there, a pane the
      * target workspace does not have).
+     *
+     * [targetIndex] is where in that pane's list the tab lands, or null to append. It is what makes
+     * a drop ABOVE or BELOW a particular tab expressible, and the only thing that makes a move
+     * within the pane a tab is already in mean anything - a reorder.
      */
     suspend fun move(
         provider: ActiveTabsProvider,
         tabId: String,
         targetWorkspaceId: String,
         targetPanelId: String? = null,
+        targetIndex: Int? = null,
     ): Boolean =
         if (targetPanelId == null) {
             provider.moveTabToWorkspace(tabId, targetWorkspaceId)
         } else {
-            provider.moveTabToPane(tabId, targetWorkspaceId, targetPanelId)
+            provider.moveTabToPane(tabId, targetWorkspaceId, targetPanelId, targetIndex)
         }
 }
