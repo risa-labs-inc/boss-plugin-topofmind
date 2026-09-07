@@ -416,6 +416,22 @@ Three things to know:
 is the ONE definition of that: the section header's position glyph and the floors stack both read
 it, so a header and a storey cannot put one pane on two different sides.
 
+### The drag ghost holds the tab where the host does
+
+`TabDragGhost` places the pointer INSIDE the card, a quarter of its width in from the leading edge
+and vertically centred. That is the host's own hotspot (`TabDraggingOverlay` uses
+`GHOST_WIDTH / 4`), so a tab dragged out of this panel is held exactly as one dragged out of the
+vertical tab bar. It used to sit 10dp down and to the right of the cursor, which reads as a tooltip
+trailing the pointer rather than as the tab you picked up - and it made one gesture feel different
+depending on which of the two lists the drag started in.
+
+- **`Modifier.layout`, not `Modifier.offset`.** The hotspot is a fraction of the ghost's OWN width,
+  and only the measure pass knows it: the row is as wide as its title, up to `GHOST_MAX_WIDTH`.
+  Placement still happens in the layout phase, so the ghost follows the pointer without recomposing
+  anything - the property `offset { }` had and the reason it was used in the first place.
+- The ghost still takes no pointer input, so hit-testing for the drop target passes straight through
+  the card now sitting under the cursor.
+
 ### Dropping on a pane, and springing a workspace open
 
 A drag names a WORKSPACE when it lands on a workspace header and a PANE when it lands on a split
