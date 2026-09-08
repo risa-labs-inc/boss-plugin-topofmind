@@ -382,30 +382,48 @@ carrying a dot; it is a grid of tiles now, each one drawing that Space's panes.
 
 ### Templates are a section of their own
 
-The eight built-in layouts are TEMPLATES, not Spaces: parameterised layouts carrying
-`{projectPath}` and friends, waiting for a project. They used to sit in the same grid as saved
-Spaces, so "Claude Code" and "Claude Code (Boss)" were two tiles of the same kind, and picking the
+The eight layouts BOSS ships are TEMPLATES, not Spaces. They used to sit in the same grid as saved
+ones, so "Claude Code" and "Claude Code (Boss)" were two tiles of the same kind, and picking the
 first put a layout on screen that belonged to no Space at all.
 
-`SpaceTemplates.kt` splits the grid: **Spaces first, Templates under them**, each with a heading,
-and the Templates heading carries what its tiles do - picking one does not open it, it creates a
-Space for the project you are in.
+`SpaceTemplates.kt` splits the grid: **Spaces first, Templates under them**, each with a heading.
 
-- **The predicate is a COPY of the host's four placeholder strings**, in one place
-  (`isTemplate()`), and it says so pointing at the host's `PROJECT_PLACEHOLDERS` - the same
-  duplication `SpaceIcon` and `paneAreaFor` already carry, for the same reason: a plugin cannot
-  import a host internal, and the api exposes the workspace TYPES without exposing a predicate over
-  them. If the host adds a fifth placeholder this list is stale and such a template is filed under
-  Spaces, which is the mild failure - the tile is in the wrong section, and the host still refuses
-  to materialise it without a project.
+- **The predicate is IDENTITY - the eight built-in ids - not the shape of the layout.** It was "does
+  this still carry an unsubstituted `{projectPath}`", which is the host's `requiresProject()`, and
+  that is a **different question**: it agrees on seven of the eight and disagrees on **Browser
+  Only**, a single browser panel on a fixed URL with nothing to parameterise. So one of the shipped
+  layouts sat in with the user's own Spaces. The user's model is the plain one - the defaults we
+  ship are the templates.
+- **It cannot be a prefix test.** `LayoutWorkspace.generateId()` mints `workspace-<epoch millis>`,
+  so a saved Space carries the same `workspace-` prefix as a built-in and `startsWith` would file
+  every Space under Templates. The NAME is no good either: a user can save a Space called
+  "Claude Code". `BUILT_IN_SPACE_IDS` is the explicit set, a COPY of the host's
+  `PredefinedWorkspaces.allIds` - the same documented duplication `SpaceIcon` and `paneAreaFor`
+  already carry, because a plugin cannot import a host internal and the api exposes the workspace
+  TYPES without exposing which ids the host ships.
+- **The drift is the mild direction, both ways.** A built-in the host ships and this set does not
+  name shows under **Spaces** - a tile in the wrong section and nothing else, since the host still
+  owns applying and materialising. An id here that the host has retired files nothing at all,
+  because no saved Space can carry it. So a stale copy degrades to "looks like an ordinary Space",
+  never to "a Space of mine is treated as one of theirs".
 - **The grouping is presentation, and the host owns the mechanism.** A tile in either section calls
   the same `switchToWorkspace`; the host's `spaceToOpen` materialises a template into a saved Space
   (substituting, naming it `"<Template> (<project>)"`, minting an id) or says why it cannot. A
   plugin could not do that job: `{gitRemoteUrl}` needs `git remote get-url origin` run in the
   project and `{claudeContinueFlag}` needs `~/.claude/projects` listed.
-- **Headings appear only when BOTH sections have something in them.** A lone "Spaces" heading over
-  the only group there is says nothing the dialog's title has not, and costs a row of a capped grid
-  to say it - so a user with no templates gets exactly the grid that was here before.
+- **The two notions stay separate, so the eight do not all behave the same.** The seven with
+  placeholders are materialised into a Space named for the project; **Browser Only is applied as it
+  is**, having nothing to substitute and no project to name a copy after. The section hint is
+  therefore descriptive - "the layouts BOSS ships with" - where it used to say "creates a Space for
+  your project", which was true of seven tiles out of eight the moment Browser Only joined them.
+  What happens is reported when it happens: the host shows "Created Space ..." for a materialised
+  one.
+- **Headings appear only when BOTH sections have something in them.** A lone heading over the only
+  group there is says nothing the dialog's title has not, and costs a row of a capped grid to say
+  it. Which side is empty flipped with this change and the rule did not: the Templates section is
+  now never empty, because the built-ins are always in the workspace list, so the case that gets a
+  single unlabelled grid is a **fresh install** - every layout in the list is one of ours until the
+  user saves something.
 - **`gridScrolls` counts the headings and the section gap, not just the tiles.** Nine tiles in three
   columns fit the cap; the same nine split into two labelled sections do not, because two headings,
   the air under each and the gap between them add 68dp. The tile-only count answered "fits" and left
