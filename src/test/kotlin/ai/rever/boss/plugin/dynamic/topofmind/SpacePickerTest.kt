@@ -401,7 +401,7 @@ class SpacePickerTest {
             gridScrolls(
                 SpaceSections(
                     spaces = List(6) { space("s$it") },
-                    templates = List(3) { template("t$it") },
+                    templates = List(3) { builtIn("built-in-$it") },
                 ),
                 columns = 3,
             ),
@@ -411,49 +411,48 @@ class SpacePickerTest {
     // ---- the two sections ----------------------------------------------------------------------
 
     @Test
-    fun `a layout with an unsubstituted project placeholder is a template`() {
-        assertTrue(template("t").isTemplate())
-        assertFalse(space("s").isTemplate())
-    }
-
-    @Test
-    fun `every project placeholder counts, in every field`() {
-        // The four the host lists, one per field that can carry one. A copy of the host's
-        // PROJECT_PLACEHOLDERS that dropped one would file that template under Spaces.
-        assertTrue(workspaceWith(TabConfig(type = "terminal", title = "t", workingDirectory = "{projectPath}")).isTemplate())
-        assertTrue(workspaceWith(TabConfig(type = "browser", title = "t", url = "{gitRemoteUrl}")).isTemplate())
-        assertTrue(workspaceWith(TabConfig(type = "editor", title = "t", filePath = "{currentFile}")).isTemplate())
-        assertTrue(
-            workspaceWith(TabConfig(type = "terminal", title = "t", initialCommand = "claude {claudeContinueFlag}")).isTemplate(),
-        )
-    }
-
-    @Test
-    fun `a placeholder anywhere in the tree is found`() {
-        // The scan has to recurse. A template's placeholder is typically in one pane of a split,
-        // and a check that only looked at the first panel would file Code Review under Spaces.
-        val deep =
-            LayoutWorkspace(
-                id = "deep",
-                name = "Deep",
-                description = "",
-                layout =
-                    SplitConfig.HorizontalSplit(
-                        top = SplitConfig.SinglePanel(PanelConfig(id = "a", tabs = emptyList())),
-                        bottom =
-                            SplitConfig.VerticalSplit(
-                                left = SplitConfig.SinglePanel(PanelConfig(id = "b", tabs = emptyList())),
-                                right =
-                                    SplitConfig.SinglePanel(
-                                        PanelConfig(
-                                            id = "c",
-                                            tabs = listOf(TabConfig(type = "terminal", title = "t", workingDirectory = "{projectPath}")),
-                                        ),
-                                    ),
-                            ),
-                    ),
+    fun `every layout BOSS ships is a template, Browser Only included`() {
+        // The whole set, by id, because the rule is IDENTITY - "one of the eight we ship" - and
+        // listing them here is what would catch the copy of the host's set going stale.
+        val builtIns =
+            listOf(
+                "workspace-claude-code",
+                "workspace-code-review",
+                "workspace-gemini",
+                "workspace-codex",
+                "workspace-opencode",
+                "workspace-terminal-browser",
+                "workspace-dual-terminal",
+                "workspace-browser",
             )
-        assertTrue(deep.isTemplate())
+
+        builtIns.forEach { id ->
+            assertTrue(builtIn(id).isTemplate(), "$id is a layout BOSS ships, so it is a template")
+        }
+    }
+
+    @Test
+    fun `Browser Only is a template even though it has nothing to substitute`() {
+        // The case the placeholder scan got wrong, called out on its own: a single browser panel on
+        // a fixed URL carries no `{projectPath}`, so the shape question answers "not a template"
+        // and files one of the shipped layouts in with the user's own Spaces.
+        val browserOnly = builtIn("workspace-browser", tab = TabConfig(type = "browser", title = "RISA Labs", url = "https://www.risalabs.ai"))
+
+        assertTrue(browserOnly.isTemplate(), "it is one of the eight, whatever its layout says")
+        assertEquals(listOf("workspace-browser"), spaceSectionsOf(listOf(browserOnly)).templates.map { it.id })
+    }
+
+    @Test
+    fun `a saved Space is never a template, whatever it is called`() {
+        // `generateId()` mints `workspace-<epoch millis>`, so a Space carries the same `workspace-`
+        // prefix as a built-in and a prefix test would call every Space a template. And the NAME is
+        // not the key either: a user may save a Space called "Claude Code".
+        assertFalse(space("workspace-1788000000000").isTemplate())
+        assertFalse(
+            space("workspace-1788000000001", name = "Claude Code").isTemplate(),
+            "sharing a built-in's NAME does not make a saved Space one of ours",
+        )
+        assertFalse(space("my-own-space").isTemplate())
     }
 
     @Test
@@ -462,58 +461,64 @@ class SpacePickerTest {
         // not reshuffle either half - the Space button's menu lists the same rows.
         val sections =
             spaceSectionsOf(
-                listOf(template("t1"), space("s1"), template("t2"), space("s2")),
+                listOf(
+                    builtIn("workspace-gemini"),
+                    space("workspace-1788000000000"),
+                    builtIn("workspace-codex"),
+                    space("workspace-1788000000001"),
+                ),
             )
-        assertEquals(listOf("s1", "s2"), sections.spaces.map { it.id })
-        assertEquals(listOf("t1", "t2"), sections.templates.map { it.id })
+        assertEquals(listOf("workspace-1788000000000", "workspace-1788000000001"), sections.spaces.map { it.id })
+        assertEquals(listOf("workspace-gemini", "workspace-codex"), sections.templates.map { it.id })
     }
 
     @Test
     fun `headings appear only when both sections have something in them`() {
-        // A lone "Spaces" heading over the only group there is says nothing the dialog title has
-        // not, and costs a row of a capped grid to say it.
-        assertFalse(sectionsAreLabelled(spaceSectionsOf(listOf(space("s")))))
-        assertFalse(sectionsAreLabelled(spaceSectionsOf(listOf(template("t")))))
-        assertTrue(sectionsAreLabelled(spaceSectionsOf(listOf(space("s"), template("t")))))
+        // A lone heading over the only group there is says nothing the dialog title has not, and
+        // costs a row of a capped grid to say it. A fresh install is exactly that case: every
+        // layout in the list is one of ours until the user saves something.
+        assertFalse(sectionsAreLabelled(spaceSectionsOf(listOf(space("workspace-1788000000000")))))
+        assertFalse(
+            sectionsAreLabelled(spaceSectionsOf(listOf(builtIn("workspace-gemini"), builtIn("workspace-browser")))),
+            "a fresh install is all templates and no Spaces, so it gets no headings",
+        )
+        assertTrue(
+            sectionsAreLabelled(spaceSectionsOf(listOf(builtIn("workspace-gemini"), space("workspace-1788000000000")))),
+        )
     }
 
     // ---- fixtures ------------------------------------------------------------------------------
 
-    private fun workspaceWith(tab: TabConfig) =
-        LayoutWorkspace(
-            id = "w",
-            name = "W",
-            description = "",
-            layout = SplitConfig.SinglePanel(PanelConfig(id = "main", tabs = listOf(tab))),
-        )
+    /**
+     * One of the layouts BOSS ships, identified by its [id].
+     *
+     * The layout is deliberately irrelevant to [isTemplate] now, which is the point of the rule: a
+     * built-in is a built-in whether or not it has anything to substitute.
+     */
+    private fun builtIn(
+        id: String,
+        tab: TabConfig = TabConfig(type = "terminal", title = "T", workingDirectory = "{projectPath}"),
+    ) = LayoutWorkspace(
+        id = id,
+        name = id,
+        description = "",
+        layout = SplitConfig.SinglePanel(PanelConfig(id = "main", tabs = listOf(tab))),
+    )
 
-    /** A saved Space: real paths, no placeholders. */
-    private fun space(id: String) =
-        LayoutWorkspace(
-            id = id,
-            name = id,
-            description = "",
-            layout =
-                SplitConfig.SinglePanel(
-                    PanelConfig(
-                        id = "main",
-                        tabs = listOf(TabConfig(type = "terminal", title = "T", workingDirectory = "/Users/me/Boss")),
-                    ),
+    /** A Space the user saved: a `generateId()`-shaped id, real paths in it. */
+    private fun space(
+        id: String,
+        name: String = id,
+    ) = LayoutWorkspace(
+        id = id,
+        name = name,
+        description = "",
+        layout =
+            SplitConfig.SinglePanel(
+                PanelConfig(
+                    id = "main",
+                    tabs = listOf(TabConfig(type = "terminal", title = "T", workingDirectory = "/Users/me/Boss")),
                 ),
-        )
-
-    /** A template: the layout still waiting for a project. */
-    private fun template(id: String) =
-        LayoutWorkspace(
-            id = id,
-            name = id,
-            description = "",
-            layout =
-                SplitConfig.SinglePanel(
-                    PanelConfig(
-                        id = "main",
-                        tabs = listOf(TabConfig(type = "terminal", title = "T", workingDirectory = "{projectPath}")),
-                    ),
-                ),
-        )
+            ),
+    )
 }

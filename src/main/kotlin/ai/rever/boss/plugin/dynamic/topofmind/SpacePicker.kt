@@ -575,8 +575,18 @@ internal const val SPACES_LABEL = "Spaces"
 /** The Templates section's heading. */
 internal const val TEMPLATES_LABEL = "Templates"
 
-/** What picking a template does, beside [TEMPLATES_LABEL]. */
-internal const val TEMPLATES_HINT = "creates a Space for your project"
+/**
+ * What the Templates section IS, beside [TEMPLATES_LABEL].
+ *
+ * Descriptive, and deliberately promises nothing about what picking one does, because the eight do
+ * not all do the same thing: the seven carrying `{projectPath}` are materialised by the host into a
+ * Space named for the project you are in, and Browser Only - a single browser panel on a fixed URL
+ * - is applied as it is, having nothing to substitute. The hint said "creates a Space for your
+ * project", which was true of seven tiles out of eight the moment Browser Only joined the section.
+ * What actually happens is reported when it happens: the host shows "Created Space ..." for a
+ * materialised one.
+ */
+internal const val TEMPLATES_HINT = "the layouts BOSS ships with"
 
 /**
  * One section of the grid: its heading, and its tiles.
