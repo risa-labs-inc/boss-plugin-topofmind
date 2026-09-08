@@ -155,6 +155,21 @@ private const val HINT_LINE_SP = 12
 private const val INITIALS_SP = 12
 private val STATE_DOT = 8.dp
 
+/**
+ * The label over a section of the grid, and the air under it.
+ *
+ * A fixed slot for the same reason [HINT_HEIGHT] is one: [gridScrolls] has to know what a section
+ * costs before anything has measured, and it can only know a height it was told. 14dp is
+ * [HINT_HEIGHT] again - a `Text` given less room than its line box CLIPS rather than overflowing,
+ * which is how the state line lost the bottom of "On screen" at 12dp.
+ */
+private val SECTION_LABEL_HEIGHT = 14.dp
+private const val SECTION_LABEL_SP = 10
+private const val SECTION_LABEL_LINE_SP = 12
+
+/** Between the two sections. [DIALOG_INSET], because a section break is the dialog's own rhythm. */
+private val SECTION_GAP = 12.dp
+
 // How far a pane is tinted toward the accent, per state. Blends, not alphas: the tint has to be
 // the thing that separates the three states, and a translucent pane over the frame's ground would
 // come out at whatever the ground happens to be. The floors view states the same rule.
@@ -404,7 +419,9 @@ internal fun SpacePickerContent(
                 )
             } else {
                 SpaceGrid(
-                    workspaces = matches,
+                    // Split here rather than inside the grid, so the two sections are one
+                    // derivation of the filtered list and not two scans of it.
+                    sections = remember(matches) { spaceSectionsOf(matches) },
                     currentWorkspaceId = currentWorkspaceId,
                     runningWorkspaceIds = runningWorkspaceIds,
                     onPick = onPick,
@@ -420,13 +437,17 @@ internal fun SpacePickerContent(
 }
 
 /**
- * The tiles, wrapped into as many columns as the dialog is wide.
+ * The tiles, in their two sections, wrapped into as many columns as the dialog is wide.
  *
- * **A FlowRow, not a LazyVerticalGrid.** The whole grid is capped at [GRID_MAX_HEIGHT] and a user's
- * Spaces number in the tens, so there is nothing here for a lazy layout to save - and a lazy grid
- * inside a `Column` needs a height of its own, which is exactly what this does not have. It is also
- * not a `Row`: the footer's own KDoc has the measurement, that a Row answers a too-narrow measure
- * by giving its LAST child zero width rather than clipping it.
+ * **A FlowRow per section, not a LazyVerticalGrid.** The whole grid is capped at [GRID_MAX_HEIGHT]
+ * and a user's Spaces number in the tens, so there is nothing here for a lazy layout to save - and
+ * a lazy grid inside a `Column` needs a height of its own, which is exactly what this does not
+ * have. It is also not a `Row`: the footer's own KDoc has the measurement, that a Row answers a
+ * too-narrow measure by giving its LAST child zero width rather than clipping it.
+ *
+ * **One scroll container over BOTH sections**, so Templates is below Spaces in the same scroll
+ * rather than in a second pane with a second bar. A section with nothing in it draws nothing at
+ * all, labels included, so a user with no templates sees exactly the grid that was here before.
  *
  * [BoxWithConstraints] is what makes the tiles flush. The column count comes from
  * [tileColumnsFor] and the leftover width is handed back to the tiles equally, so the grid fills
@@ -436,7 +457,7 @@ internal fun SpacePickerContent(
  */
 @Composable
 private fun SpaceGrid(
-    workspaces: List<LayoutWorkspace>,
+    sections: SpaceSections,
     currentWorkspaceId: String?,
     runningWorkspaceIds: Set<String>,
     onPick: (LayoutWorkspace) -> Unit,
@@ -449,6 +470,7 @@ private fun SpaceGrid(
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val columns = tileColumnsFor(maxWidth)
         val tileWidth = (maxWidth - TILE_GAP * (columns - 1).toFloat()) / columns.toFloat()
+        val labelled = sectionsAreLabelled(sections)
 
         Column(
             modifier =
@@ -477,50 +499,182 @@ private fun SpaceGrid(
                             getPanelScrollbarConfig().copy(
                                 alpha =
                                     SCROLLBAR_ALPHA.takeIf {
-                                        gridScrolls(workspaces.size, columns)
+                                        gridScrolls(sections, columns)
                                     },
                             ),
                     ).verticalScroll(gridScroll),
+            verticalArrangement = Arrangement.spacedBy(SECTION_GAP),
         ) {
-                FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(TILE_GAP),
-                verticalArrangement = Arrangement.spacedBy(TILE_GAP),
-                maxItemsInEachRow = columns,
-            ) {
-                workspaces.forEach { workspace ->
-                    SpaceTile(
-                        workspace = workspace,
-                        state =
-                            spaceStateFor(
-                                workspaceId = workspace.id,
-                                currentWorkspaceId = currentWorkspaceId,
-                                runningWorkspaceIds = runningWorkspaceIds,
-                            ),
-                        onClick = { onPick(workspace) },
-                        modifier = Modifier.width(tileWidth),
-                    )
-                }
+            SpaceSectionTiles(
+                label = if (labelled) SPACES_LABEL else null,
+                hint = null,
+                workspaces = sections.spaces,
+                columns = columns,
+                tileWidth = tileWidth,
+                currentWorkspaceId = currentWorkspaceId,
+                runningWorkspaceIds = runningWorkspaceIds,
+                onPick = onPick,
+            )
+            SpaceSectionTiles(
+                label = if (labelled) TEMPLATES_LABEL else null,
+                // Only the templates get a hint, because only they do something a tile cannot
+                // show: picking one does not open it, it CREATES a Space for the project you are
+                // in and opens that. On the label's own line, so saying it costs no height.
+                hint = TEMPLATES_HINT,
+                workspaces = sections.templates,
+                columns = columns,
+                tileWidth = tileWidth,
+                currentWorkspaceId = currentWorkspaceId,
+                runningWorkspaceIds = runningWorkspaceIds,
+                onPick = onPick,
+            )
+        }
+    }
+}
+
+/** The Spaces section's heading. */
+internal const val SPACES_LABEL = "Spaces"
+
+/** The Templates section's heading. */
+internal const val TEMPLATES_LABEL = "Templates"
+
+/** What picking a template does, beside [TEMPLATES_LABEL]. */
+internal const val TEMPLATES_HINT = "creates a Space for your project"
+
+/**
+ * One section of the grid: its heading, and its tiles.
+ *
+ * Draws NOTHING for an empty section - no label, no gap - so the two-section layout collapses back
+ * to the one-section one it replaced. `Column` arrangement only spaces children that actually
+ * measure, so the [SECTION_GAP] between the sections disappears with the empty one.
+ */
+@Composable
+@Suppress("LongParameterList")
+private fun SpaceSectionTiles(
+    label: String?,
+    hint: String?,
+    workspaces: List<LayoutWorkspace>,
+    columns: Int,
+    tileWidth: Dp,
+    currentWorkspaceId: String?,
+    runningWorkspaceIds: Set<String>,
+    onPick: (LayoutWorkspace) -> Unit,
+) {
+    if (workspaces.isEmpty()) return
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(TILE_GAP),
+    ) {
+        if (label != null) SpaceSectionLabel(label = label, hint = hint)
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(TILE_GAP),
+            verticalArrangement = Arrangement.spacedBy(TILE_GAP),
+            maxItemsInEachRow = columns,
+        ) {
+            workspaces.forEach { workspace ->
+                SpaceTile(
+                    workspace = workspace,
+                    state =
+                        spaceStateFor(
+                            workspaceId = workspace.id,
+                            currentWorkspaceId = currentWorkspaceId,
+                            runningWorkspaceIds = runningWorkspaceIds,
+                        ),
+                    onClick = { onPick(workspace) },
+                    modifier = Modifier.width(tileWidth),
+                )
             }
         }
     }
 }
 
 /**
- * Whether [count] tiles in [columns] columns are taller than the grid's cap, so a scrollbar means
- * something.
+ * A section heading, with its optional hint on the same line.
+ *
+ * A fixed [SECTION_LABEL_HEIGHT] row, because [gridScrolls] budgets for it before anything has
+ * measured. The hint takes the remaining width and ellipsizes, so at [DIALOG_MIN_WIDTH] the label
+ * survives whole and the sentence beside it truncates rather than pushing the label off its own
+ * row.
+ */
+@Composable
+private fun SpaceSectionLabel(
+    label: String,
+    hint: String?,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(SECTION_LABEL_HEIGHT),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(TILE_ITEM_GAP),
+    ) {
+        Text(
+            text = label,
+            fontSize = SECTION_LABEL_SP.sp,
+            lineHeight = SECTION_LABEL_LINE_SP.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = BossThemeColors.TextSecondary,
+            maxLines = 1,
+        )
+        if (hint != null) {
+            Text(
+                text = hint,
+                fontSize = SECTION_LABEL_SP.sp,
+                lineHeight = SECTION_LABEL_LINE_SP.sp,
+                color = BossThemeColors.TextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/**
+ * Whether the grid draws its section headings at all.
+ *
+ * Only when there is something in BOTH sections. A lone "Spaces" heading over the only group there
+ * is says nothing the dialog's own title has not said, and it would cost a row of vertical space
+ * in a dialog capped at [GRID_MAX_HEIGHT] to say it - so a user with no templates gets exactly the
+ * grid that was here before templates were told apart from Spaces.
+ */
+internal fun sectionsAreLabelled(sections: SpaceSections): Boolean =
+    sections.spaces.isNotEmpty() && sections.templates.isNotEmpty()
+
+/**
+ * Whether the two sections are taller than the grid's cap, so a scrollbar means something.
  *
  * Arithmetic rather than a scroll-state read, for the reason written at the call site: every
  * scroll-state answer is wrong until the scrollable has measured, and this one is right on the
- * first frame. `ceil` by integer division, so 13 tiles in 4 columns is 4 rows, not 3.
+ * first frame.
+ *
+ * The budget is what [SpaceGrid] actually lays out, and every term is load-bearing: a heading row
+ * and the gap under it per LABELLED section, `ceil` rows of tiles with a gap between them, and one
+ * [SECTION_GAP] between two non-empty sections. Counting tiles alone - which is what this did
+ * with one section - under-measures a labelled two-section grid by 68dp, which is most of a tile.
  */
 internal fun gridScrolls(
-    count: Int,
+    sections: SpaceSections,
     columns: Int,
-): Boolean {
-    if (count <= 0 || columns <= 0) return false
-    val rows = (count + columns - 1) / columns
-    return TILE_HEIGHT * rows.toFloat() + TILE_GAP * (rows - 1).toFloat() > GRID_MAX_HEIGHT
+): Boolean = sectionsHeight(sections, columns) > GRID_MAX_HEIGHT
+
+private fun sectionsHeight(
+    sections: SpaceSections,
+    columns: Int,
+): Dp {
+    if (columns <= 0) return 0.dp
+    val labelled = sectionsAreLabelled(sections)
+    val blocks = listOf(sections.spaces.size, sections.templates.size).filter { it > 0 }
+    if (blocks.isEmpty()) return 0.dp
+    val tiles =
+        blocks.sumOf { count ->
+            val rows = (count + columns - 1) / columns
+            (TILE_HEIGHT * rows.toFloat() + TILE_GAP * (rows - 1).toFloat()).value.toDouble()
+        }
+    val headings = if (labelled) (SECTION_LABEL_HEIGHT + TILE_GAP).value * blocks.size else 0f
+    val between = SECTION_GAP.value * (blocks.size - 1)
+    return (tiles.toFloat() + headings + between).dp
 }
 
 /**

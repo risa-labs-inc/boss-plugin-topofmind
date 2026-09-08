@@ -362,6 +362,41 @@ carrying a dot; it is a grid of tiles now, each one drawing that Space's panes.
   pane divider and the misaligned thumbnails were all found by looking at a PNG and none of them by
   reasoning about the arithmetic. The dialog itself cannot be rendered that way: it is a window.
 
+### Templates are a section of their own
+
+The eight built-in layouts are TEMPLATES, not Spaces: parameterised layouts carrying
+`{projectPath}` and friends, waiting for a project. They used to sit in the same grid as saved
+Spaces, so "Claude Code" and "Claude Code (Boss)" were two tiles of the same kind, and picking the
+first put a layout on screen that belonged to no Space at all.
+
+`SpaceTemplates.kt` splits the grid: **Spaces first, Templates under them**, each with a heading,
+and the Templates heading carries what its tiles do - picking one does not open it, it creates a
+Space for the project you are in.
+
+- **The predicate is a COPY of the host's four placeholder strings**, in one place
+  (`isTemplate()`), and it says so pointing at the host's `PROJECT_PLACEHOLDERS` - the same
+  duplication `SpaceIcon` and `paneAreaFor` already carry, for the same reason: a plugin cannot
+  import a host internal, and the api exposes the workspace TYPES without exposing a predicate over
+  them. If the host adds a fifth placeholder this list is stale and such a template is filed under
+  Spaces, which is the mild failure - the tile is in the wrong section, and the host still refuses
+  to materialise it without a project.
+- **The grouping is presentation, and the host owns the mechanism.** A tile in either section calls
+  the same `switchToWorkspace`; the host's `spaceToOpen` materialises a template into a saved Space
+  (substituting, naming it `"<Template> (<project>)"`, minting an id) or says why it cannot. A
+  plugin could not do that job: `{gitRemoteUrl}` needs `git remote get-url origin` run in the
+  project and `{claudeContinueFlag}` needs `~/.claude/projects` listed.
+- **Headings appear only when BOTH sections have something in them.** A lone "Spaces" heading over
+  the only group there is says nothing the dialog's title has not, and costs a row of a capped grid
+  to say it - so a user with no templates gets exactly the grid that was here before.
+- **`gridScrolls` counts the headings and the section gap, not just the tiles.** Nine tiles in three
+  columns fit the cap; the same nine split into two labelled sections do not, because two headings,
+  the air under each and the gap between them add 68dp. The tile-only count answered "fits" and left
+  no scrollbar over a row hidden under the fold. Mutation-verified: zeroing either term fails a
+  named test.
+- **The split preserves the host's order inside each half.** The workspace list arrives in one order
+  the whole app agrees on, and the Space button's menu lists the same rows, so `partition` rather
+  than a sort.
+
 ### The Space picker and the tools menu are one pattern
 
 The picker (`SpacePicker.kt`) and the host's tools menu (`ToolLauncherDialog.kt`) do the same job -

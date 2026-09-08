@@ -1,7 +1,9 @@
 package ai.rever.boss.plugin.dynamic.topofmind
 
+import ai.rever.boss.plugin.workspace.LayoutWorkspace
 import ai.rever.boss.plugin.workspace.PanelConfig
 import ai.rever.boss.plugin.workspace.SplitConfig
+import ai.rever.boss.plugin.workspace.TabConfig
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import kotlin.test.Test
@@ -222,32 +224,161 @@ class SpacePickerTest {
 
     // ---- gridScrolls ---------------------------------------------------------------------------
 
+    private fun spacesOnly(count: Int) = SpaceSections(spaces = List(count) { space("s$it") }, templates = emptyList())
+
     @Test
     fun `a grid that fits its cap does not scroll`() {
         // The scrollbar has to be ABSENT here. `Modifier.scrollbar` draws a full-length thumb for
         // content that fits rather than refusing to draw, so a wrong answer is a permanent bar
         // beside three tiles - which is exactly what the first two attempts at this gate did.
-        assertFalse(gridScrolls(count = 3, columns = 3))
-        assertFalse(gridScrolls(count = 1, columns = 3))
+        assertFalse(gridScrolls(spacesOnly(3), columns = 3))
+        assertFalse(gridScrolls(spacesOnly(1), columns = 3))
     }
 
     @Test
     fun `a grid taller than its cap scrolls`() {
-        assertTrue(gridScrolls(count = 20, columns = 4))
+        assertTrue(gridScrolls(spacesOnly(20), columns = 4))
     }
 
     @Test
     fun `the row count rounds UP`() {
         // 13 tiles in 4 columns is 4 rows, not 3. Plain integer division answers 3 and hides the
         // last row behind a grid that looks complete.
-        assertEquals(gridScrolls(count = 16, columns = 4), gridScrolls(count = 13, columns = 4))
+        assertEquals(gridScrolls(spacesOnly(16), columns = 4), gridScrolls(spacesOnly(13), columns = 4))
     }
 
     @Test
     fun `nothing to lay out never scrolls`() {
         // Guards the arithmetic, not the UI: `columns` comes from a measured width, which is zero
         // for the frame before the dialog has one, and the row count would divide by it.
-        assertFalse(gridScrolls(count = 0, columns = 4))
-        assertFalse(gridScrolls(count = 5, columns = 0))
+        assertFalse(gridScrolls(spacesOnly(0), columns = 4))
+        assertFalse(gridScrolls(spacesOnly(5), columns = 0))
     }
+
+    @Test
+    fun `the headings and the section gap count toward the cap`() {
+        // Nine tiles in three columns is three rows, which fits the cap on their own. Split into
+        // two labelled sections they do not: two headings, the air under each, and the gap between
+        // the sections add 68dp, and one of those rows now has a tile hidden under the fold. The
+        // old count-the-tiles gate answered "fits" here and left no scrollbar.
+        assertFalse(gridScrolls(spacesOnly(9), columns = 3))
+        assertTrue(
+            gridScrolls(
+                SpaceSections(
+                    spaces = List(6) { space("s$it") },
+                    templates = List(3) { template("t$it") },
+                ),
+                columns = 3,
+            ),
+        )
+    }
+
+    // ---- the two sections ----------------------------------------------------------------------
+
+    @Test
+    fun `a layout with an unsubstituted project placeholder is a template`() {
+        assertTrue(template("t").isTemplate())
+        assertFalse(space("s").isTemplate())
+    }
+
+    @Test
+    fun `every project placeholder counts, in every field`() {
+        // The four the host lists, one per field that can carry one. A copy of the host's
+        // PROJECT_PLACEHOLDERS that dropped one would file that template under Spaces.
+        assertTrue(workspaceWith(TabConfig(type = "terminal", title = "t", workingDirectory = "{projectPath}")).isTemplate())
+        assertTrue(workspaceWith(TabConfig(type = "browser", title = "t", url = "{gitRemoteUrl}")).isTemplate())
+        assertTrue(workspaceWith(TabConfig(type = "editor", title = "t", filePath = "{currentFile}")).isTemplate())
+        assertTrue(
+            workspaceWith(TabConfig(type = "terminal", title = "t", initialCommand = "claude {claudeContinueFlag}")).isTemplate(),
+        )
+    }
+
+    @Test
+    fun `a placeholder anywhere in the tree is found`() {
+        // The scan has to recurse. A template's placeholder is typically in one pane of a split,
+        // and a check that only looked at the first panel would file Code Review under Spaces.
+        val deep =
+            LayoutWorkspace(
+                id = "deep",
+                name = "Deep",
+                description = "",
+                layout =
+                    SplitConfig.HorizontalSplit(
+                        top = SplitConfig.SinglePanel(PanelConfig(id = "a", tabs = emptyList())),
+                        bottom =
+                            SplitConfig.VerticalSplit(
+                                left = SplitConfig.SinglePanel(PanelConfig(id = "b", tabs = emptyList())),
+                                right =
+                                    SplitConfig.SinglePanel(
+                                        PanelConfig(
+                                            id = "c",
+                                            tabs = listOf(TabConfig(type = "terminal", title = "t", workingDirectory = "{projectPath}")),
+                                        ),
+                                    ),
+                            ),
+                    ),
+            )
+        assertTrue(deep.isTemplate())
+    }
+
+    @Test
+    fun `the split keeps the host's order inside each section`() {
+        // The workspace list arrives in one order the whole app agrees on, so partitioning must
+        // not reshuffle either half - the Space button's menu lists the same rows.
+        val sections =
+            spaceSectionsOf(
+                listOf(template("t1"), space("s1"), template("t2"), space("s2")),
+            )
+        assertEquals(listOf("s1", "s2"), sections.spaces.map { it.id })
+        assertEquals(listOf("t1", "t2"), sections.templates.map { it.id })
+    }
+
+    @Test
+    fun `headings appear only when both sections have something in them`() {
+        // A lone "Spaces" heading over the only group there is says nothing the dialog title has
+        // not, and costs a row of a capped grid to say it.
+        assertFalse(sectionsAreLabelled(spaceSectionsOf(listOf(space("s")))))
+        assertFalse(sectionsAreLabelled(spaceSectionsOf(listOf(template("t")))))
+        assertTrue(sectionsAreLabelled(spaceSectionsOf(listOf(space("s"), template("t")))))
+    }
+
+    // ---- fixtures ------------------------------------------------------------------------------
+
+    private fun workspaceWith(tab: TabConfig) =
+        LayoutWorkspace(
+            id = "w",
+            name = "W",
+            description = "",
+            layout = SplitConfig.SinglePanel(PanelConfig(id = "main", tabs = listOf(tab))),
+        )
+
+    /** A saved Space: real paths, no placeholders. */
+    private fun space(id: String) =
+        LayoutWorkspace(
+            id = id,
+            name = id,
+            description = "",
+            layout =
+                SplitConfig.SinglePanel(
+                    PanelConfig(
+                        id = "main",
+                        tabs = listOf(TabConfig(type = "terminal", title = "T", workingDirectory = "/Users/me/Boss")),
+                    ),
+                ),
+        )
+
+    /** A template: the layout still waiting for a project. */
+    private fun template(id: String) =
+        LayoutWorkspace(
+            id = id,
+            name = id,
+            description = "",
+            layout =
+                SplitConfig.SinglePanel(
+                    PanelConfig(
+                        id = "main",
+                        tabs = listOf(TabConfig(type = "terminal", title = "T", workingDirectory = "{projectPath}")),
+                    ),
+                ),
+        )
 }
