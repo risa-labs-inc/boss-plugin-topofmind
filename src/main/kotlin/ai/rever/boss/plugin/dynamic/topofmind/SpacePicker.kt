@@ -55,6 +55,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -63,6 +64,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.floor
+import kotlin.math.roundToInt
 
 // The dialog. Wider than the list it replaced, because a grid needs a second column to be a grid:
 // at DIALOG_MIN_WIDTH two tiles fit, at DIALOG_MAX_WIDTH three. The radius is the quick switcher's
@@ -320,6 +322,41 @@ internal fun tileColumnsFor(available: Dp): Int =
         .coerceAtLeast(1)
 
 /**
+ * How wide each of [columns] tiles is when they fill [available] at [density], rounded down to a
+ * WHOLE PIXEL.
+ *
+ * **The pixel is the fix, and dp arithmetic is what got this wrong twice.** The exact share is
+ * `(available - gaps) / columns`, and at the dialog's widest that is `(456 - 16) / 3 =
+ * 146.6666717529297` - which in dp adds back up to exactly 456.0, so nothing looks amiss.
+ * `Modifier.width(dp)` resolves through `Density.roundToPx`, which ROUNDS: at density 1 that tile
+ * measures **147px**, three of them need 441px, and only 440 are available. `FlowRow` wrapped one,
+ * so the dialog computed three columns and laid out two with 150dp of dead air down the right.
+ *
+ * Flooring to a whole dp fixes density 1 and is still wrong at a fractional one: a 122dp tile at
+ * 1.25x is 152.5px, rounds to 153, and two of them overrun a 315px row by a pixel. Rounding the
+ * PIXEL down instead makes `roundToPx` a no-op on the way back - the dp handed out is already an
+ * exact number of pixels - so `columns * tile + gaps <= available` holds in the units the layout
+ * actually measures in, at every density. `SpacePickerTest` sweeps whole-pixel widths at 1x, the
+ * Windows scaling steps and 2x.
+ *
+ * At most one pixel per column goes unspent, which is what keeps the tiles flush with both edges
+ * of the dialog.
+ */
+internal fun tileWidthFor(
+    available: Dp,
+    columns: Int,
+    density: Float,
+): Dp {
+    if (columns <= 0 || density <= 0f) return available
+    val availablePx = available.value * density
+    // The gap is measured the same way the arrangement will measure it, so the arithmetic budgets
+    // for the pixels the row will actually spend on gaps rather than for their dp.
+    val gapPx = (TILE_GAP.value * density).roundToInt()
+    val tilePx = floor((availablePx - gapPx * (columns - 1)) / columns)
+    return (tilePx / density).dp
+}
+
+/**
  * Every saved Space as a tile, in a dialog with a search field.
  *
  * [BossDialog], never a plain Compose `Dialog` or `Popup`: under JxBrowser's hardware-accelerated
@@ -469,7 +506,7 @@ private fun SpaceGrid(
     // has to sit where the answer is available.
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val columns = tileColumnsFor(maxWidth)
-        val tileWidth = (maxWidth - TILE_GAP * (columns - 1).toFloat()) / columns.toFloat()
+        val tileWidth = tileWidthFor(maxWidth, columns, LocalDensity.current.density)
         val labelled = sectionsAreLabelled(sections)
 
         Column(

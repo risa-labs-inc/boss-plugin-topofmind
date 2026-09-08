@@ -5,7 +5,9 @@ import ai.rever.boss.plugin.workspace.PanelConfig
 import ai.rever.boss.plugin.workspace.SplitConfig
 import ai.rever.boss.plugin.workspace.TabConfig
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -19,6 +21,13 @@ import kotlin.test.assertTrue
  * three states a Space is in, where the PRECEDENCE is the whole rule.
  */
 class SpacePickerTest {
+    /**
+     * What the grid is actually handed at the dialog's widest: 480dp of card less its 12dp inset
+     * either side. Stated here rather than exported from the picker, so a change to either number
+     * has to be noticed in both places.
+     */
+    private val DIALOG_CONTENT_WIDTH = 456.dp
+
     private var nextPanel = 0
 
     private fun panel(): SplitConfig.SinglePanel =
@@ -220,6 +229,132 @@ class SpacePickerTest {
             SpaceState.RUNNING,
             spaceStateFor("a", currentWorkspaceId = null, runningWorkspaceIds = setOf("a")),
         )
+    }
+
+    // ---- the tiles fit the row they were counted for --------------------------------------------
+
+    /**
+     * The bug this pins: the dialog computed THREE columns at its widest and laid out TWO, leaving
+     * 150dp of dead air down the right and making AGENTS.md's "three at its widest" untrue of the
+     * shipped build.
+     *
+     * **The mechanism is `roundToPx`, not float error, and getting that wrong cost two attempts.**
+     * In dp the sum came out exactly right: `(456 - 16) / 3` is `146.6666717529297`, and three of
+     * those plus the two gaps is `456.0` on the nose. But `Modifier.width(dp)` resolves through
+     * `Density.roundToPx`, which ROUNDS - so at density 1 that tile is measured as **147px**, three
+     * need 441px, and 440 are available. `FlowRow` wraps one. A dp-only assertion passes against
+     * that, which is why everything here measures in PIXELS at a density.
+     *
+     * It is also why the bug is display-dependent, and worth knowing before hunting it on a mac: at
+     * density 2 the same tile is 293px and three fit 912px with one to spare, so a 2x screen never
+     * showed it.
+     */
+    @Test
+    fun `three tiles fit the dialog at its widest`() {
+        val available = DIALOG_CONTENT_WIDTH
+
+        assertEquals(3, tileColumnsFor(available), "480dp of dialog less its 12dp insets holds three")
+        assertTrue(
+            rowWidthPx(available, columns = 3, density = 1f) <= availablePx(available, 1f),
+            "three tiles plus two gaps must FIT in whole pixels, or FlowRow wraps one: " +
+                "${rowWidthPx(available, 3, 1f)}px in ${availablePx(available, 1f)}px",
+        )
+    }
+
+    /**
+     * The invariant, over every width the grid can be handed and every density it can be drawn at.
+     * One width at one density is how this survived a test suite once already - and a fractional
+     * density is how the SECOND attempt at the fix (floor the dp) still overran a row by a pixel.
+     */
+    @Test
+    fun `the columns counted always fit the width they were counted for`() {
+        forEachWidthAndDensity { available, density ->
+            val columns = tileColumnsFor(available)
+            assertTrue(
+                rowWidthPx(available, columns, density) <= availablePx(available, density),
+                "$columns columns do not fit $available at ${density}x: " +
+                    "${rowWidthPx(available, columns, density)}px in ${availablePx(available, density)}px",
+            )
+        }
+    }
+
+    @Test
+    fun `a tile is never meaningfully narrower than the minimum that decided the column count`() {
+        // A fix that fit by making the tiles small would pass the test above and be a different
+        // bug: the column count would be a lie. One pixel of slack is the rounding, not a lie.
+        forEachWidthAndDensity { available, density ->
+            val columns = tileColumnsFor(available)
+            // One column at a width under one tile is the clamp doing its job, not a violation.
+            if (columns > 1) {
+                val tilePx = (tileWidthFor(available, columns, density).value * density).roundToInt()
+                val minPx = (TILE_MIN_WIDTH.value * density).roundToInt()
+                assertTrue(
+                    tilePx >= minPx - 1,
+                    "a tile at $available (${density}x) came out ${tilePx}px, under the ${minPx}px minimum",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `the pixel floor spends almost all of the width`() {
+        // The other direction, and the reason the fix rounds rather than shaving a margin off: at
+        // most one PIXEL per column goes unspent, so the tiles stay flush with both edges.
+        forEachWidthAndDensity { available, density ->
+            val columns = tileColumnsFor(available)
+            val unspent = availablePx(available, density) - rowWidthPx(available, columns, density)
+            assertTrue(
+                unspent in 0..columns,
+                "$available at ${density}x left ${unspent}px unspent over $columns columns",
+            )
+        }
+    }
+
+    @Test
+    fun `no columns and no density are answered without dividing by them`() {
+        // `columns` comes from a measured width, which is zero before the dialog has one.
+        assertEquals(0.dp, tileWidthFor(0.dp, columns = 0, density = 1f))
+        assertEquals(100.dp, tileWidthFor(100.dp, columns = 2, density = 0f))
+    }
+
+    /**
+     * Every width the grid is plausibly handed, at every density BOSS is drawn at.
+     *
+     * **The sweep is over PIXELS, and the dp is derived from them.** A measure constraint carries
+     * whole pixels and `BoxWithConstraints.maxWidth` is `constraints.maxWidth.toDp()`, so "102dp at
+     * 1.25x" is not a state the layout can be in - and inventing one made an earlier version of
+     * this sweep fail on an arrangement that cannot happen. The densities are the ones a desktop
+     * reports: 1x, the Windows scaling steps, and 2x.
+     */
+    private fun forEachWidthAndDensity(check: (available: Dp, density: Float) -> Unit) {
+        listOf(1f, 1.25f, 1.5f, 1.75f, 2f).forEach { density ->
+            // 100..600 dp of grid, swept in whole pixels at this density.
+            ((100 * density).toInt()..(600 * density).toInt()).forEach { px ->
+                check((px / density).dp, density)
+            }
+        }
+    }
+
+    /** The width in whole pixels: exact, because [forEachWidthAndDensity] derived the dp from it. */
+    private fun availablePx(
+        available: Dp,
+        density: Float,
+    ): Int = (available.value * density).roundToInt()
+
+    /**
+     * What one row of [columns] tiles measures in pixels: `Modifier.width` and
+     * `Arrangement.spacedBy` both resolve through `Density.roundToPx`, so each is ROUNDED before
+     * anything is added up. Modelling that is the whole point - adding dp and converting once
+     * hides the rounding that wrapped the row.
+     */
+    private fun rowWidthPx(
+        available: Dp,
+        columns: Int,
+        density: Float,
+    ): Int {
+        val tilePx = (tileWidthFor(available, columns, density).value * density).roundToInt()
+        val gapPx = (TILE_GAP.value * density).roundToInt()
+        return tilePx * columns + gapPx * (columns - 1)
     }
 
     // ---- gridScrolls ---------------------------------------------------------------------------

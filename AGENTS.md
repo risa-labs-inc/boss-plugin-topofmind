@@ -297,6 +297,24 @@ carrying a dot; it is a grid of tiles now, each one drawing that Space's panes.
   in the whole window and these sit in a 320..480dp dialog, where 132 buys two columns and 24dp of
   dead air instead of two tiles. 120 gives two columns at the dialog's narrowest and three at its
   widest, about 140dp wide either way.
+- **The tile width is rounded down to a WHOLE PIXEL, and dp arithmetic got it wrong twice.** For
+  most of this dialog's life it computed three columns at its widest and laid out TWO, with 150dp
+  of dead air down the right - so the line above was untrue of the shipped build. In dp nothing
+  looked wrong: `(456 - 16) / 3` is `146.6666717529297` and three of those plus the two gaps is
+  exactly `456.0`. But `Modifier.width(dp)` resolves through `Density.roundToPx`, which **rounds**,
+  so at density 1 that tile measures 147px, three need 441px, and 440 are available. `FlowRow`
+  wraps one. Two things follow. The bug was **display-dependent** - at density 2 the same tile is
+  293px and three fit 912px with one to spare, so a 2x screen never showed it, which is worth
+  knowing before hunting it on a mac. And flooring to a whole DP is not enough either: a 122dp tile
+  at 1.25x is 152.5px, rounds to 153, and two overrun a 315px row. `tileWidthFor` therefore takes
+  the density and rounds the pixel down, so `roundToPx` is a no-op on the way back.
+  `SpacePickerTest` sweeps whole-pixel widths at 1x, the Windows scaling steps and 2x - a dp-only
+  assertion passes against the original bug, which is how it survived a test suite once already.
+- **Known, and cosmetic: with three columns the scrollbar overlays the third tile's edge.**
+  `Modifier.scrollbar` is a `drawWithContent` overlay with no reserved gutter, and the tiles are
+  flush with both edges of the dialog by design. At two columns there were 150dp of dead air for
+  the bar to sit in. Reserving its width would make the tile width depend on whether the grid
+  scrolls, i.e. reflow the row when a Space is added, which is worse than a bar over a border.
 - **`SpaceLayoutPlan` reads the SAVED `SplitConfig`, where the floors view reads the live tree.**
   Not a duplicate of `WorkspaceFloorPlan` and not a candidate for merging with it: this dialog lists
   Spaces that are running AND Spaces that are not, and a Space sitting on disk has no live tree to
