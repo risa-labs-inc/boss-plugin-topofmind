@@ -33,8 +33,18 @@ repositories {
 
 dependencies {
     if (useLocalDependencies) {
-        // Local development: use boss-plugin-api JAR from sibling repo
-        compileOnly(files("$bossPluginApiPath/build/libs/boss-plugin-api-1.0.88.jar"))
+        // Local development: use boss-plugin-api JAR from sibling repo.
+        //
+        // 1.0.89 is boss-plugin-api#44 (the tab-transfer surface: moveTabToPane, liveWorkspaceIds,
+        // activePanelId, selectedTabId, allWindowTabs and friends, plus BossColors.accentText).
+        // It is NOT released yet, so this resolves only against a locally built jar - CI takes the
+        // latest published release instead and will pick 1.0.89 up once #44 merges.
+        //
+        // This pin said 1.0.88 first, and #50 took 1.0.88 with an unrelated surface. Because a
+        // local jar of the matching name shadows the download, the local build stayed green while
+        // CI compiled against bytes without these members and failed on references that plainly
+        // existed on disk. If #44 slips behind another api merge, this number moves again.
+        compileOnly(files("$bossPluginApiPath/build/libs/boss-plugin-api-1.0.89.jar"))
     } else {
         // CI: use downloaded JAR
         compileOnly(files("build/downloaded-deps/boss-plugin-api.jar"))
@@ -60,7 +70,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(
         if (useLocalDependencies) {
-            files("$bossPluginApiPath/build/libs/boss-plugin-api-1.0.88.jar")
+            files("$bossPluginApiPath/build/libs/boss-plugin-api-1.0.89.jar")
         } else {
             files("build/downloaded-deps/boss-plugin-api.jar")
         }
