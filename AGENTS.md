@@ -981,3 +981,22 @@ Pushes to `main` trigger the release workflow: build the JAR, create a GitHub re
 the BOSS Plugin Store. Defined in `.github/workflows/build.yml`, delegating to
 `risa-labs-inc/BossConsole-Releases`. It passes `boss_plugin_api_version: 'latest'`, so a new api
 symbol needs no pin change here.
+
+## Manifest floors
+
+`src/main/resources/META-INF/boss-plugin/plugin.json` carries `apiVersion` and
+`minBossVersion`, and both are PREDICTIONS of releases that do not exist yet
+while this branch is open:
+
+- **`apiVersion` 1.0.90** is what boss-plugin-api#44 will cut. api release CI
+  bump-pushes before building, so api main's `version` IS the version already
+  released and the next merge ships version + 1. This number has already been
+  wrong twice: it said 1.0.88 and #50 took that, then 1.0.89 and an unrelated
+  release took that on 2026-09-10.
+- **`minBossVersion` 9.5.17** is what BossConsole#284 will cut, on the same
+  rule against `version.properties`. Main released 9.5.16 on 2026-09-14.
+
+**Re-read both at merge time.** Anything that releases ahead of these PRs moves
+them, and the failure is quiet: a floor too low loads this plugin on a host with
+no `workspaceAccents` / `closeWorkspace`, and a floor too high makes the updater
+refuse an install that would have worked.
