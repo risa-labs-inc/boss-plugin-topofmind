@@ -661,6 +661,56 @@ ground alone was never the thing to compare against. `SwitcherGroupHeader`, `Qui
 the body can go into an `ImageComposeScene` and be looked at, and so is `SpaceThemePickerContent` -
 whose first render is what found the double tick.
 
+### A Space with no tabs is still a Space
+
+`buildTree` groups `activeTabs` by `workspaceId`, so a Space contributing zero tabs contributed zero
+rows and was invisible - including when it was the one ON SCREEN. That is exactly what
+`ActiveTabsProvider.liveWorkspaceIds` exists to answer, and its own KDoc says so: "a workspace with
+no tabs contributes no rows there, so a freshly created empty workspace would be invisible". This
+plugin had used that member for drag targets, the transfer menu and the picker all along, and never
+for the one list it was written about.
+
+- **Live, never saved.** The union is `activeTabs`' own ids plus `liveWorkspaceIds` plus the current
+  Space. Every Space on DISK belongs to the Space picker; listing them here would make the tree a
+  second copy of it, and a worse one, since it could say nothing about what is in them.
+- **The current Space is unioned in separately** for the one case the live set can miss: a host old
+  enough to serve that member's defaulted empty set still has a Space on screen.
+- **`liveWorkspaceIds` is a getter, so it is a `remember` KEY and not only an argument.** Reading it
+  cannot by itself provoke a recomposition; being a key is what rebuilds the tree when the set
+  changes during a composition something else asked for. That something else is reliably there for
+  the case that matters - opening a Space makes it current, and `currentWorkspace` IS a flow. Not
+  covered: an empty Space CLOSING while another Space is on screen, where nothing observable
+  changes and the row lingers until the next rebuild. The same snapshot caveat the footer's Space
+  menu carries, and the mild direction - a row a moment stale, never a Space that cannot be seen.
+- **An empty Space is named from the saved list**, because it has no tab to carry a `workspaceName`.
+  In neither list it is called "Space", the word the quick switcher already uses for a workspace it
+  cannot name; the id is still on the node, so the tint, the drop target and the theme picker all
+  work on a row that cannot say what it is.
+- **Ordering needed nothing.** `seedOrder` keys on the saved `timestamp` and `WorkspaceArrival` on
+  the id, and an empty Space has both. Rendered, it sits in its seeded position rather than at
+  either end, and `EmptySpaceTest` pins that three rebuilds do not move it, that one opened later
+  lands at the bottom, and that a Space KEEPS its slot when it gains its first tab - otherwise
+  dropping a tab into an empty Space would make that row jump out from under the pointer that just
+  dropped on it.
+- **An empty floor draws as a plain tinted bar reading `<name> 0`.** `panesOf` already answers one
+  whole-plate pane for a structure with no sections - its KDoc anticipated exactly this, "it has no
+  tabs to take an id from, and it is still drawn" - and `tabCount == 0` fills that pane with
+  `Color.Transparent`, so the plate is the floor. No crash, no zero-height floor: the stack's
+  heights come from `floorMetricsFor(count)`, which counts workspaces and not tabs. An idle empty
+  floor is therefore indistinguishable from an idle populated one except by its COUNT, which is
+  the honest difference and the one `isCurrent` does not have to speak a seventh time to say.
+- **The THEME TINT is what identifies it**, and that is load-bearing here rather than decorative: a
+  row with no tabs under it has nothing else to recognise. Confirmed by rendering an empty Space
+  that is NOT the current one, since the current one wears the app accent either way and would have
+  hidden the question.
+- **No close action, and nothing had to be done for that.** `onCloseAll` is already
+  `onCloseTabs?.takeIf { tabs.isNotEmpty() }`, and `tabsIn` of an empty structure is empty - so the
+  row offers no way to close nothing.
+- **It is a drop target like any other**, which is the point: an empty live Space is the most
+  useful destination there is. `WorkspaceHeader` registers `workspaceDropTarget` whenever there is a
+  drag, keyed on the id, and `TabTransfer` already listed empty Spaces as move destinations because
+  it was reading `liveWorkspaceIds` all along.
+
 ### One section per pane, named by the host
 
 `TabTreeBuilder.buildTabStructure` groups tabs by `panelId` and names each group from

@@ -173,9 +173,28 @@ private fun TabTree(
     // (see TabTreeBuilder.workspaceOrder), so a workspace saved while the panel is open has to
     // move without waiting for a tab somewhere to change.
     val savedWorkspaces = workspaceDataProvider?.workspaces?.collectAsState()?.value.orEmpty()
+
+    // Every Space this window is RUNNING, which is not the same question as which Spaces have a
+    // tab in them - and it is the only way an EMPTY Space gets a row at all.
+    //
+    // A getter, not a flow, so reading it here cannot by itself provoke a recomposition. It is a
+    // `remember` KEY rather than only an argument, which is what makes the tree rebuild when the
+    // set changes during a composition that something else asked for. The something else is
+    // reliably there for the case that matters: opening a Space makes it the current one, and
+    // `currentWorkspace` IS a flow. What is not covered is an empty Space closing while some other
+    // Space is on screen - nothing observable changes, so its row lingers until the next rebuild.
+    // That is the same "snapshot" caveat the footer's Space menu already carries, and the mild
+    // direction: a row that is a moment stale, never a Space that cannot be seen.
+    val liveWorkspaceIds = activeTabsProvider.liveWorkspaceIds
     val treeNodes =
-        remember(activeTabs, savedWorkspaces) {
-            TabTreeBuilder.buildTree(activeTabs, workspaceDataProvider, workspaceArrival)
+        remember(activeTabs, savedWorkspaces, liveWorkspaceIds, currentWorkspaceId) {
+            TabTreeBuilder.buildTree(
+                activeTabs = activeTabs,
+                workspaceDataProvider = workspaceDataProvider,
+                arrival = workspaceArrival,
+                liveWorkspaceIds = liveWorkspaceIds,
+                currentWorkspaceId = currentWorkspaceId,
+            )
         }
     // Keyed on the current workspace as well as the tree: the default now says "the workspace on
     // screen is open, the rest are closed", so a switch that changes nothing else still has to

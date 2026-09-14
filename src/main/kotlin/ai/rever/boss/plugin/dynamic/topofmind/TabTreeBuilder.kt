@@ -93,24 +93,45 @@ object TabTreeBuilder {
      *
      * [arrival] is what puts a newly opened workspace at the BOTTOM rather than at its save-time
      * position. It is per panel and lives on the component; see [WorkspaceArrival].
+     *
+     * **[liveWorkspaceIds] and [currentWorkspaceId] are what make an EMPTY Space visible.**
+     * Grouping [activeTabs] answers "which Spaces have a tab in them", which is a different
+     * question from "which Spaces is this window running" - and a Space with no tabs in it
+     * contributed no rows and was invisible, even when it was the one on screen. That is precisely
+     * what `ActiveTabsProvider.liveWorkspaceIds` exists to answer, and its own KDoc says so.
+     *
+     * **Live, never saved.** The tree is what this WINDOW is doing. Every Space on disk belongs to
+     * the Space picker; putting them here would make this a second copy of it, and a worse one
+     * since it could say nothing about what is in them. The current Space is unioned in for the
+     * one case `liveWorkspaceIds` can miss - a host old enough to serve the default empty set still
+     * has a Space on screen.
      */
     fun buildTree(
         activeTabs: List<ActiveTabData>,
         workspaceDataProvider: WorkspaceDataProvider? = null,
-        arrival: WorkspaceArrival? = null
+        arrival: WorkspaceArrival? = null,
+        liveWorkspaceIds: Set<String> = emptySet(),
+        currentWorkspaceId: String? = null
     ): List<TabTreeNode> {
-        val addedAt =
-            workspaceDataProvider
-                ?.workspaces
-                ?.value
-                .orEmpty()
-                .associate { it.id to it.timestamp }
+        val saved = workspaceDataProvider?.workspaces?.value.orEmpty()
+        val addedAt = saved.associate { it.id to it.timestamp }
+        val savedNames = saved.associate { it.id to it.name }
+
+        val byWorkspace = activeTabs.groupBy { it.workspaceId }
+        // Every Space this window is running, whether or not anything is open in it. Union rather
+        // than replacement: `activeTabs` can report a Space the live set does not (a host that
+        // serves the defaulted empty set still reports its tabs), and the live set reports Spaces
+        // `activeTabs` cannot (the empty ones this exists for). Ids are distinct, so a Space in
+        // both is one row.
+        val everyWorkspace =
+            byWorkspace.keys + liveWorkspaceIds + listOfNotNull(currentWorkspaceId).filter { it.isNotEmpty() }
 
         val rootNodes =
-            activeTabs.groupBy { it.workspaceId }.map { (workspaceId, tabs) ->
+            everyWorkspace.map { workspaceId ->
+                val tabs = byWorkspace[workspaceId].orEmpty()
                 TabTreeNode.WorkspaceNode(
                     id = "workspace-$workspaceId",
-                    name = tabs.firstOrNull()?.workspaceName ?: "Unknown",
+                    name = nameOf(workspaceId, tabs, savedNames),
                     workspaceId = workspaceId,
                     level = 0,
                     tabStructure = buildTabStructure(tabs),
@@ -128,6 +149,31 @@ object TabTreeBuilder {
         val slots = arrival.slotsFor(seeded.map { it.workspaceId })
         return seeded.sortedBy { slots[it.workspaceId] ?: Int.MAX_VALUE }
     }
+
+    /**
+     * What to call a workspace, preferring what its own tabs say it is called.
+     *
+     * A tab carries `workspaceName`, which is the host's live answer and the one every populated
+     * row has always used. An EMPTY Space has no tab to ask, so the saved list answers instead -
+     * the same list [seedOrder] takes its timestamps from.
+     *
+     * A Space in neither is one this window is running that nothing has saved, and it still gets a
+     * row: "Space" is what the quick switcher already calls a workspace it cannot name, so this
+     * borrows that word rather than inventing a second one, and a row saying nothing is better
+     * than no row at all - the id is still on the node, so the tint, the drop target and the theme
+     * picker all work on it.
+     */
+    private fun nameOf(
+        workspaceId: String,
+        tabs: List<ActiveTabData>,
+        savedNames: Map<String, String>,
+    ): String =
+        tabs
+            .firstOrNull()
+            ?.workspaceName
+            ?.takeIf { it.isNotBlank() }
+            ?: savedNames[workspaceId]?.takeIf { it.isNotBlank() }
+            ?: "Space"
 
     /**
      * Every tab under a piece of the tree, in the order it is drawn.
