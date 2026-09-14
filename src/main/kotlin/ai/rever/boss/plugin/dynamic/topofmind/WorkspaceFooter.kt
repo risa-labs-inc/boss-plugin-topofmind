@@ -1,0 +1,411 @@
+package ai.rever.boss.plugin.dynamic.topofmind
+
+import ai.rever.boss.plugin.api.DialogChoice
+import ai.rever.boss.plugin.api.FilePickerProvider
+import ai.rever.boss.plugin.api.GenericDialogProvider
+import ai.rever.boss.plugin.api.SplitViewOperations
+import ai.rever.boss.plugin.api.WorkspaceDataProvider
+import ai.rever.boss.plugin.ui.BossColors
+import ai.rever.boss.plugin.ui.BossThemeColors
+import ai.rever.boss.plugin.workspace.WorkspaceSerializer
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Upload
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+// The host's own sidebar action button, to the dp, because these sit in the same column as it.
+//
+// A 32dp target (`SIDEBAR_ICON_SIZE` in the host's FocusModeQuickActions) around a 20dp glyph
+// (`BossActionButton`'s `iconSize` default, with its 2dp content padding). The glyph was 14dp,
+// which is a tab row's bare icon rather than a footer button's, and next to the host's own action
+// row these read as a smaller class of control than the one they sit beside. The 4dp radius and
+// the hover fill are unchanged.
+private val ACTION_SIZE = 32.dp
+private val ACTION_RADIUS = RoundedCornerShape(4.dp)
+private val ACTION_ICON = 20.dp
+
+// Matches the host's own foot (HostActionsFlowRow): 4dp between icons, 6dp of air above and below,
+// 8dp either side.
+private val FOOTER_GAP = 4.dp
+private val FOOTER_INSET = 6.dp
+private val FOOTER_SIDE_INSET = 8.dp
+
+/**
+ * The workspace actions, pinned to the foot of the panel.
+ *
+ * The same menu the host hangs off `WorkspaceButton` at the foot of its vertical tab bar, minus the
+ * two entries a plugin cannot reach (see below), laid out as icons rather than a labelled button
+ * because this panel's whole width is a tree and a labelled control would compete with it.
+ *
+ * **A FlowRow, not a Row**, for the reason the host writes up on `HostActionsFlowRow`: a panel
+ * column goes down to about 120dp, four 32dp buttons plus their gaps need more than that, and a Row
+ * that will not wrap answers a too-narrow measure by giving its LAST child zero width - an absent
+ * button rather than a clipped one, at a width the user can reach by dragging.
+ *
+ * **A full-width rule above it**, again the host's call for a panel foot specifically: what is above
+ * is the plugin's own content on the same fill, and without the rule these actions read as part of
+ * the tree rather than as chrome under it.
+ *
+ * **Two host actions are deliberately absent**: `Open Workspace Folder` and `Reset to Default`.
+ * Neither has an equivalent on [WorkspaceDataProvider] - they need `WorkspaceManager`'s
+ * `getWorkspaceDirectory()` and `resetToDefault()`, which the api does not expose - so there is
+ * nothing honest to wire them to. A disabled button would just be the same absence taking up room.
+ *
+ * The workspace buttons themselves are [WorkspaceActions], which is where the null-provider rules
+ * live; this function owns the rule, the row and the one button that needs no provider.
+ */
+@Composable
+internal fun WorkspaceActionsFooter(
+    workspaceDataProvider: WorkspaceDataProvider?,
+    splitViewOperations: SplitViewOperations?,
+    filePickerProvider: FilePickerProvider?,
+    genericDialogProvider: GenericDialogProvider?,
+    /**
+     * Workspace ids this window is running, read when the menu OPENS rather than collected.
+     *
+     * `ActiveTabsProvider.liveWorkspaceIds` is a plain getter over host state, not a flow, so
+     * reading it during composition would not recompose when it changed. A snapshot taken as the
+     * menu opens is the honest version of what it can answer.
+     */
+    runningWorkspaceIds: () -> Set<String>,
+    /**
+     * Which dialog this panel is showing, held by [TopofmindComponent] rather than remembered
+     * here.
+     *
+     * It was a `remember` in this function, which is right while the button below is the only
+     * thing that can open it. The host opens both of them now, through this plugin's deep-link
+     * action handler, and that caller is outside the composition entirely - so the state has to
+     * live somewhere it can write. Panel-scoped, never process-wide: see [PanelDialogState].
+     */
+    panelDialogs: PanelDialogState,
+    /**
+     * Raise the quick switcher.
+     *
+     * A lambda rather than this footer opening it directly, because the switcher needs
+     * `ActiveTabsProvider` and is drawn by [TopOfMindContent] - which has one, and which draws
+     * whether or not there is a workspace provider. See the call site for why that matters.
+     */
+    onOpenQuickSwitcher: () -> Unit,
+    scope: CoroutineScope,
+) {
+    // No rule above these actions. It used to separate the footer from the tree; the floors stack
+    // sits between them now, and a line under the building read as the ground the building was
+    // standing on rather than as the edge of the footer.
+    Column(modifier = Modifier.fillMaxWidth()) {
+        FlowRow(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = FOOTER_SIDE_INSET, vertical = FOOTER_INSET),
+            horizontalArrangement = Arrangement.spacedBy(FOOTER_GAP, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(FOOTER_GAP),
+        ) {
+            WorkspaceActions(
+                workspaceDataProvider = workspaceDataProvider,
+                splitViewOperations = splitViewOperations,
+                filePickerProvider = filePickerProvider,
+                genericDialogProvider = genericDialogProvider,
+                runningWorkspaceIds = runningWorkspaceIds,
+                panelDialogs = panelDialogs,
+                scope = scope,
+            )
+
+            // RIGHTMOST, and the one button always drawn: everything it needs is the panel's own
+            // state, where each workspace action needs a provider that may be absent. Search moved
+            // off the top of the panel and into this row - a field pinned above the tree spent 28dp
+            // of a narrow sidebar permanently, to filter a tree that is already grouped and
+            // collapsible, and the search worth having spans every window rather than this one.
+            FooterAction(
+                icon = Icons.Outlined.Search,
+                description = "Find a tab",
+                onClick = onOpenQuickSwitcher,
+            )
+        }
+    }
+}
+
+/**
+ * The four workspace buttons, emitted straight into the footer's `FlowRow`.
+ *
+ * Split out of [WorkspaceActionsFooter] so its guards can refuse the workspace actions without
+ * refusing the whole footer: the search button beside them depends on none of these providers, and
+ * an early return in the outer function used to take the row, the rule and everything in it away.
+ *
+ * Emitted into the caller's FlowRow rather than wrapped in a layout of its own, so the wrap that
+ * `FlowRow` exists for still counts every button - a `Row` around these would be one child that
+ * cannot break, which is the failure `HostActionsFlowRow` documents.
+ *
+ * Every provider here is nullable and any of them can be null at runtime, so a button whose
+ * provider is missing is NOT DRAWN. A shown-but-dead control is a worse answer than a smaller row:
+ * it says the action exists and then swallows the click.
+ */
+@Composable
+@Suppress("LongParameterList")
+private fun WorkspaceActions(
+    workspaceDataProvider: WorkspaceDataProvider?,
+    splitViewOperations: SplitViewOperations?,
+    filePickerProvider: FilePickerProvider?,
+    genericDialogProvider: GenericDialogProvider?,
+    runningWorkspaceIds: () -> Set<String>,
+    panelDialogs: PanelDialogState,
+    scope: CoroutineScope,
+) {
+    // Every action here reads or writes the workspace list, so without that provider there are no
+    // workspace buttons at all - not a row of dead ones.
+    if (workspaceDataProvider == null) return
+
+    // Bound as non-null locals so each button's condition below states what THAT button needs.
+    // Switching needs the split view as well as the list: it preserves what is on screen before it
+    // applies the new layout (see switchToWorkspace). Save and Delete are prompts first, and the
+    // host's dialog provider IS the prompt here, so without it neither can ask anything.
+    val splits = splitViewOperations
+    val dialogs = genericDialogProvider
+    val picker = filePickerProvider
+    if (splits == null && dialogs == null) return
+
+    val workspaces by workspaceDataProvider.workspaces.collectAsState()
+    val currentWorkspace by workspaceDataProvider.currentWorkspace.collectAsState()
+
+    var running by remember { mutableStateOf(emptySet<String>()) }
+
+    // Snapshot what is running on the way OPEN, whichever door was used - the button below, or the
+    // host's workspace button reaching in through the action handler. Keyed on the visibility, so
+    // it fires on the transition and not again while the dialog is up: re-reading it under the
+    // user would move the dots around while they are reading the list.
+    val pickerOpen = panelDialogs.isOpen(PanelDialog.WORKSPACE_PICKER)
+    LaunchedEffect(pickerOpen) {
+        if (pickerOpen) running = runningWorkspaceIds()
+    }
+
+    if (splits != null) {
+        FooterAction(
+            icon = SpaceIcon,
+            description = "Open space",
+            onClick = { panelDialogs.toggle(PanelDialog.WORKSPACE_PICKER) },
+        ) {
+            if (pickerOpen) {
+                WorkspacePickerDialog(
+                    workspaces = workspaces,
+                    currentWorkspaceId = currentWorkspace?.id,
+                    runningWorkspaceIds = running,
+                    onDismiss = { panelDialogs.close() },
+                    onPick = { workspace ->
+                        panelDialogs.close()
+                        // The panel's one switch, shared with a click on a workspace header.
+                        switchToWorkspace(
+                            workspaceId = workspace.id,
+                            workspaceDataProvider = workspaceDataProvider,
+                            splitViewOperations = splits,
+                            scope = scope,
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    if (dialogs != null) {
+        FooterAction(
+            icon = Icons.Outlined.Save,
+            description = "Save space",
+            onClick = { scope.launch { saveWorkspace(workspaceDataProvider, dialogs) } },
+        )
+    }
+
+    if (splits != null && picker != null) {
+        FooterAction(
+            icon = Icons.Outlined.Upload,
+            description = "Open space from file",
+            onClick = {
+                openWorkspaceFromFile(
+                    filePicker = picker,
+                    workspaceDataProvider = workspaceDataProvider,
+                    splitViewOperations = splits,
+                    dialogs = dialogs,
+                    scope = scope,
+                )
+            },
+        )
+    }
+
+    if (dialogs != null) {
+        FooterAction(
+            icon = Icons.Outlined.Delete,
+            description = "Delete space",
+            onClick = { scope.launch { deleteWorkspace(workspaceDataProvider, dialogs) } },
+        )
+    }
+}
+
+/**
+ * One icon button in the foot.
+ *
+ * [overlay] is emitted INSIDE the button's box, which is where a dialog raised by this button
+ * lives. A dialog is a window and sizes itself, so nesting it here costs the row no width - unlike
+ * a popup, which would inherit this 32dp button as its measuring parent.
+ */
+@Composable
+private fun FooterAction(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    overlay: @Composable () -> Unit = {},
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    Box(
+        modifier =
+            Modifier
+                .size(ACTION_SIZE)
+                .clip(ACTION_RADIUS)
+                .background(if (isHovered) BossColors.darkSurface else Color.Transparent)
+                .hoverable(interactionSource)
+                .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            // The action's name, so a screen reader and a hover both have something to say.
+            contentDescription = description,
+            modifier = Modifier.size(ACTION_ICON),
+            tint = BossThemeColors.TextSecondary,
+        )
+        overlay()
+    }
+}
+
+/**
+ * Ask for a name and save the current workspace under it.
+ *
+ * The prompt is the HOST's dialog ([GenericDialogProvider.showTextInputDialog]) rather than one this
+ * plugin draws: it is a suspend call that returns the answer, so there is no dialog-visibility state
+ * to keep, and it is drawn by the host, which is the only party that can guarantee where a modal
+ * lands relative to a browser surface.
+ *
+ * The host's own Save updates the current workspace with the live split tree first. A plugin cannot:
+ * nothing on `SplitViewOperations` hands back the layout that is on screen, so this saves whatever
+ * the host currently holds as the current workspace.
+ */
+private suspend fun saveWorkspace(
+    workspaceDataProvider: WorkspaceDataProvider,
+    dialogs: GenericDialogProvider,
+) {
+    val current = workspaceDataProvider.currentWorkspace.value
+    val name =
+        dialogs
+            .showTextInputDialog(
+                title = "Save Space",
+                message = "Save the current layout under a name.",
+                initialValue = current?.name.orEmpty(),
+                placeholder = "Space name",
+                validation = { if (it.isBlank()) "Enter a name" else null },
+            )?.trim()
+            .orEmpty()
+    if (name.isEmpty()) return
+    workspaceDataProvider.saveCurrentWorkspace(name)
+}
+
+/**
+ * Choose a workspace, confirm, and delete it.
+ *
+ * Deleting is by NAME on this api - `WorkspaceDataProvider.deleteWorkspace(name: String)` - which is
+ * worth stating next to the id-keyed rest of the interface, since passing an id there deletes
+ * nothing and says nothing.
+ */
+private suspend fun deleteWorkspace(
+    workspaceDataProvider: WorkspaceDataProvider,
+    dialogs: GenericDialogProvider,
+) {
+    val saved = workspaceDataProvider.workspaces.value
+    if (saved.isEmpty()) {
+        dialogs.showAlertDialog(
+            title = "Delete Space",
+            message = "There are no saved spaces to delete.",
+        )
+        return
+    }
+    val choice =
+        dialogs.showChoiceDialog(
+            title = "Delete Space",
+            message = "Pick the space to delete.",
+            // Keyed by NAME, because that is what deleteWorkspace takes.
+            choices = saved.map { DialogChoice(id = it.name, label = it.name, description = it.description) },
+        ) ?: return
+    val confirmed =
+        dialogs.showConfirmationDialog(
+            title = "Delete Space",
+            message = "Delete \"${choice.label}\"? This removes the saved layout and cannot be undone.",
+            confirmText = "Delete",
+            isDestructive = true,
+        )
+    if (confirmed) workspaceDataProvider.deleteWorkspace(choice.id)
+}
+
+/**
+ * Open a workspace saved to a file: pick it, read it, load it, apply it.
+ *
+ * The read is off the UI thread and guarded: a file the user picked is arbitrary input, and
+ * `WorkspaceSerializer.deserialize` throws on anything that is not a workspace. The failure is
+ * reported when there is a dialog provider to report it with, and swallowed rather than crashing the
+ * panel when there is not.
+ */
+private fun openWorkspaceFromFile(
+    filePicker: FilePickerProvider,
+    workspaceDataProvider: WorkspaceDataProvider,
+    splitViewOperations: SplitViewOperations,
+    dialogs: GenericDialogProvider?,
+    scope: CoroutineScope,
+) {
+    filePicker.pickFile(title = "Open Space", filters = listOf("json")) { path ->
+        if (path.isNullOrBlank()) return@pickFile
+        scope.launch {
+            val workspace =
+                withContext(Dispatchers.IO) {
+                    runCatching { WorkspaceSerializer.deserialize(File(path).readText()) }.getOrNull()
+                }
+            if (workspace == null) {
+                dialogs?.showAlertDialog(
+                    title = "Open Space",
+                    message = "That file could not be read as a space.",
+                )
+                return@launch
+            }
+            workspaceDataProvider.loadWorkspace(workspace)
+            splitViewOperations.applyWorkspace(workspace)
+        }
+    }
+}

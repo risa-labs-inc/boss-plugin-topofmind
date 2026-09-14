@@ -1,0 +1,614 @@
+package ai.rever.boss.plugin.dynamic.topofmind
+
+import ai.rever.boss.plugin.api.ActiveTabData
+import ai.rever.boss.plugin.api.ActiveTabsProvider
+import ai.rever.boss.plugin.api.ContextMenuProvider
+import ai.rever.boss.plugin.ui.BossColors
+import ai.rever.boss.plugin.ui.BossThemeColors
+import ai.rever.boss.plugin.ui.ContextMenuItemData
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.Icon
+import androidx.compose.material.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Tab
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
+
+// The vertical tab bar's own metrics, so a Top of Mind row and a tab-bar row read as the same
+// control. See BossTabButton.kt in the host: 32dp tall, flush, 3dp radius, 8dp inside, 6dp between.
+internal val ROW_HEIGHT = 32.dp
+internal val ROW_RADIUS = RoundedCornerShape(3.dp)
+internal val ROW_INSET = 8.dp
+internal val ROW_ITEM_GAP = 6.dp
+internal val ROW_ICON = 14.dp
+
+// Fills are alphas over theme tokens rather than a fixed wash, for the same reason the host gives:
+// these rows sit on the panel surface, not on the content floor.
+private const val HOVER_FILL_ALPHA = 0.55f
+
+// BossTabButton's SELECTED_FILL_ALPHA and INACTIVE_FILL_ALPHA. The second is over `lineStrong`,
+// which BossColors exposes only as contextMenuBorder - the same token under a menu-shaped name.
+private const val SELECTED_FILL_ALPHA = 0.16f
+private const val INACTIVE_FILL_ALPHA = 0.35f
+private const val UNSELECTED_TEXT_ALPHA = 0.8f
+private const val DRAG_SOURCE_ALPHA = 0.3f
+private const val MOVED_FLASH_ALPHA = 0.28f
+private const val GHOST_ALPHA = 0.95f
+
+/** How strongly a row fills when its pane is the drop target. Quieter than a selection. */
+private const val PANE_DROP_FILL_ALPHA = 0.14f
+
+/** The insertion line's thickness. A hairline reads as a divider; this reads as a place. */
+private val INSERTION_LINE = 2.dp
+
+/**
+ * What a drag in flight asks this row to draw.
+ *
+ * [paneFilled] is "your pane will take the tab", [line] is "and it will land at this edge of you",
+ * null for neither. One value rather than two, because both are derived from one pointer read and
+ * splitting them would mean two subscriptions to it.
+ */
+private data class DropMarks(
+    val paneFilled: Boolean,
+    val line: Alignment?,
+)
+
+/**
+ * Which edge of the row at [indexInPane] draws the insertion line for slot [hoveredIndex], if any.
+ *
+ * Every slot is drawn by the row BENEATH it - slot k is the top edge of row k - so a boundary
+ * between two rows is drawn once rather than by both of the rows that touch it. The one slot with no
+ * row beneath it is the last, drawn on the bottom edge of the final row, which is what
+ * [isLastInPane] is for.
+ *
+ * Null when either index is absent: a pane header carries no slot, and a row that cannot honestly
+ * name a position carries no index (see `TabRow.indexInPane`).
+ */
+internal fun insertionEdgeFor(
+    hoveredIndex: Int?,
+    indexInPane: Int?,
+    isLastInPane: Boolean,
+): Alignment? {
+    if (hoveredIndex == null || indexInPane == null) return null
+    return when (hoveredIndex - indexInPane) {
+        0 -> Alignment.TopCenter
+        1 -> Alignment.BottomCenter.takeIf { isLastInPane }
+        else -> null
+    }
+}
+private val GHOST_MAX_WIDTH = 220.dp
+/**
+ * Where the pointer sits inside the ghost, as a fraction of its width from the leading edge.
+ *
+ * The host's own tab ghost (`TabDraggingOverlay`) uses `GHOST_WIDTH / 4` with the card vertically
+ * centred on the pointer, and this is that rule: the tab is HELD, a quarter in from its leading
+ * edge, the way it is when dragged out of the vertical tab bar. It used to sit 10dp down and to the
+ * right of the cursor instead, which reads as a tooltip trailing the pointer rather than as the tab
+ * you picked up - and it meant the same gesture felt different depending on which of the two lists
+ * you started the drag in.
+ */
+private const val GHOST_HOTSPOT_FRACTION = 4
+
+/**
+ * One tab in the tree.
+ *
+ * Single line on purpose. The URL used to be a second 9.sp line under the title, which made every
+ * row twice as tall as the tab bar's and turned a list of ten tabs into a wall - it is a tooltip
+ * now, where a person who wants it can ask for it.
+ */
+@Composable
+internal fun TabRow(
+    tab: ActiveTabData,
+    activeTabsProvider: ActiveTabsProvider,
+    contextMenuProvider: ContextMenuProvider?,
+    dragState: TabDragState?,
+    transferTargets: List<TransferTarget>,
+    /**
+     * Whether this tab is the one its pane is SHOWING - the tab bar's `isSelected`.
+     *
+     * From `ActiveTabsProvider.selectedTabId(workspaceId, panelId)` - the workspace is required
+     * because panel ids repeat across trees. It used to be unanswerable here, which is
+     * why this row marked nothing: activeTabs is a flat list of what exists and every pane has one
+     * tab on top of it that the list does not name.
+     */
+    isSelected: Boolean,
+    /**
+     * Whether this tab's pane is the one the user is working in - the tab bar's `isFocused`.
+     *
+     * From `ActiveTabsProvider.activePanelId`. A pane in a workspace that is not on screen is never
+     * focused, however recently it was, which is what keeps exactly one row wearing the accent.
+     */
+    isFocused: Boolean,
+    indent: Dp,
+    onClick: () -> Unit,
+    onClose: () -> Unit,
+    /**
+     * Move this tab to a workspace, and to a pane of it when the gesture named one.
+     *
+     * The pane is null from the context menu, which lists workspaces and lets the host pick the
+     * pane, and non-null from a drop onto a pane header.
+     */
+    onMoveTo: (String, String?, Int?) -> Unit,
+    /**
+     * This tab's position in its pane, so a drop on this row can name a slot above or below it.
+     *
+     * Null where the row is not a positioned member of a list - the ghost, and the one row a
+     * collapsed pane keeps as its summary - because a drop there has no index to mean.
+     */
+    indexInPane: Int? = null,
+    /**
+     * Whether this is the LAST row of its pane.
+     *
+     * Only the last row draws an insertion line below itself. Every slot between two rows is drawn
+     * by the row beneath it, so without this the boundary between rows would get two lines and the
+     * slot after the final row would get none.
+     */
+    isLastInPane: Boolean = false,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    val isDragSource = dragState?.dragging?.tabId == tab.tabId
+    val justMoved = dragState?.recentlyMovedTabId == tab.tabId
+
+    // BossTabButton's own cascade, token for token and alpha for alpha. Selection outranks hover
+    // there too: pointing at the row you are already on should not replace the marker that says so.
+    // The two selected strengths are the point - accent for the pane you are working in, a quiet
+    // grey for every other pane's current tab - so several panes can each show theirs without four
+    // rows all claiming to be the live one.
+    // Two answers about this drag, read through ONE derivedStateOf.
+    //
+    // Both come from the pointer, which moves every frame, so reading them directly would make this
+    // row a per-frame subscription to values that change a handful of times in a whole drag. This
+    // is the same reason the ghost puts `overTarget` behind derivedStateOf.
+    //
+    // The pane fill says WHICH PANE will take the tab; the line says WHERE IN IT. The pane needed
+    // both once a drop could carry a position: the fill alone named a pane and left the slot
+    // invisible, and a line alone would not say which pane it belonged to at a glance.
+    val paneTarget = remember(tab.workspaceId, tab.panelId) {
+        TabDragState.PaneTarget(tab.workspaceId, tab.panelId)
+    }
+    val dropMarks by remember(dragState, paneTarget, indexInPane, isLastInPane) {
+        derivedStateOf {
+            if (dragState == null || dragState.hoveredPane != paneTarget) {
+                DropMarks(paneFilled = false, line = null)
+            } else {
+                DropMarks(
+                    paneFilled = true,
+                    line = insertionEdgeFor(dragState.hoveredIndex, indexInPane, isLastInPane),
+                )
+            }
+        }
+    }
+    val paneIsDropTarget = dropMarks.paneFilled
+
+    val fill =
+        when {
+            justMoved -> BossThemeColors.AccentColor.copy(alpha = MOVED_FLASH_ALPHA)
+            paneIsDropTarget -> BossThemeColors.AccentColor.copy(alpha = PANE_DROP_FILL_ALPHA)
+            isSelected && isFocused -> BossThemeColors.AccentColor.copy(alpha = SELECTED_FILL_ALPHA)
+            isSelected -> BossColors.contextMenuBorder.copy(alpha = INACTIVE_FILL_ALPHA)
+            isHovered -> BossColors.darkSurface.copy(alpha = HOVER_FILL_ALPHA)
+            else -> Color.Transparent
+        }
+
+    val dragModifier =
+        if (dragState != null) {
+            rememberTabDragModifier(tab, dragState) {
+                onMoveTo(it.targetWorkspaceId, it.targetPanelId, it.targetIndex)
+            }
+        } else {
+            Modifier
+        }
+
+    // A row is a drop target for its OWN pane, not only the pane's header.
+    //
+    // The header is 24dp of a pane that is mostly rows, so aiming at it was the whole gesture; and
+    // an expanded pane - which the pane being worked in always is - shows its header above a column
+    // of rows that accepted nothing. Dropping "on a pane" now means dropping anywhere in it.
+    //
+    // Keyed per TAB, because every row in a pane registers a rectangle for the same pane and a
+    // per-pane key would leave only the last one. The row is also the drag SOURCE, which does not
+    // clash: this adds no pointer input, only `onGloballyPositioned`.
+    val paneTargetModifier =
+        if (dragState != null) {
+            Modifier.paneDropTarget(
+                key = "tab:${tab.tabId}",
+                target = TabDragState.PaneTarget(tab.workspaceId, tab.panelId),
+                dragState = dragState,
+                // The row's own position, which is what lets a drop on its top half land above it
+                // and one on its bottom half below it.
+                index = indexInPane,
+            )
+        } else {
+            Modifier
+        }
+
+    val menuItems = tabMenuItems(tab, transferTargets, onClick, onClose, onMoveTo)
+    val contextMenuModifier =
+        if (contextMenuProvider != null && menuItems.isNotEmpty()) {
+            contextMenuProvider.applyContextMenu(Modifier, menuItems)
+        } else {
+            Modifier
+        }
+
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(ROW_HEIGHT)
+                // The row a drag picked up fades right down, because the ghost under the cursor is
+                // now the thing carrying it. Dimming only the icon (which is what this did) left
+                // the row looking untouched, so a drag in progress was invisible from the source.
+                .alpha(if (isDragSource) DRAG_SOURCE_ALPHA else 1f)
+                .then(contextMenuModifier)
+                .then(dragModifier)
+                .then(paneTargetModifier)
+                .background(fill, ROW_RADIUS)
+                .hoverable(interactionSource)
+                .clickable(onClick = onClick),
+    ) {
+        // Above the row's content, and inset to where that content starts so it reads as a place in
+        // this list rather than as a rule across the panel. It is drawn INSIDE the row rather than
+        // between rows because there is nothing between rows to draw in: the list has no spacing,
+        // and a slot is an edge of a row.
+        dropMarks.line?.let { edge ->
+            Box(
+                modifier =
+                    Modifier
+                        .align(edge)
+                        .fillMaxWidth()
+                        .padding(start = indent + ROW_INSET, end = ROW_INSET)
+                        .height(INSERTION_LINE)
+                        .background(BossThemeColors.AccentColor, ROW_RADIUS),
+            )
+        }
+
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight()
+                    .padding(start = indent + ROW_INSET, end = ROW_INSET),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ROW_ITEM_GAP),
+        ) {
+            TabGlyph(tab, activeTabsProvider)
+
+            Text(
+                text = tab.title.ifEmpty { "Untitled" },
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                color =
+                    if (isSelected) {
+                        BossThemeColors.TextPrimary
+                    } else {
+                        BossThemeColors.TextPrimary.copy(alpha = UNSELECTED_TEXT_ALPHA)
+                    },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = false,
+                modifier = Modifier.weight(1f),
+            )
+
+            // No reserved space: the title takes the width back when nothing is shown, which is
+            // what keeps a narrow sidebar readable.
+            if (isSelected || isHovered) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "Close ${tab.title}",
+                    modifier =
+                        Modifier
+                            .size(12.dp)
+                            .clickable(onClick = onClose),
+                    tint = BossThemeColors.TextSecondary,
+                )
+            }
+        }
+
+        // Drawn last so the fill underneath cannot tint it. Full height, leading edge, 3dp - the
+        // tab bar's marker, not an underline. Accent when this is the pane you are working in, the
+        // quiet line otherwise, so one row reads as live and the rest as merely current.
+        if (isSelected) {
+            Box(
+                modifier =
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .fillMaxHeight()
+                        .width(3.dp)
+                        .background(
+                            if (isFocused) BossThemeColors.AccentColor else BossThemeColors.BorderColor,
+                            RoundedCornerShape(2.dp),
+                        ),
+            )
+        }
+    }
+}
+
+/**
+ * Long-press to pick a row up, then drag it onto a workspace header.
+ *
+ * Long-press rather than a plain drag because the row is also a click target and a scrollable list
+ * item; a bare `detectDragGestures` would steal both.
+ *
+ * [rememberUpdatedState] on everything the gesture reads is load-bearing. `pointerInput` captures
+ * its lambda once per key and keeps running it for the life of the block, so a value read directly
+ * would be whatever it was at the composition that started the gesture - the stale-capture bug
+ * that made split-drag gain jump.
+ */
+@Composable
+private fun rememberTabDragModifier(
+    tab: ActiveTabData,
+    dragState: TabDragState,
+    onDrop: (TabDragState.TransferRequest) -> Unit,
+): Modifier {
+    val currentTab by rememberUpdatedState(tab)
+    val currentState by rememberUpdatedState(dragState)
+    val currentOnDrop by rememberUpdatedState(onDrop)
+    // Pointer events arrive local to this row; the drop targets are measured in window space and
+    // share no parent with it, so the row's own origin is what makes the two comparable.
+    val origin = remember { mutableStateOf(Rect.Zero) }
+
+    return Modifier
+        .onGloballyPositioned { origin.value = it.boundsInWindow() }
+        .pointerInput(tab.tabId) {
+            detectDragGesturesAfterLongPress(
+                onDragStart = { offset ->
+                    currentState.startDrag(currentTab, origin.value.topLeft + offset)
+                },
+                onDrag = { change, _ ->
+                    change.consume()
+                    currentState.updateDrag(origin.value.topLeft + change.position)
+                },
+                onDragEnd = { currentState.endDrag()?.let(currentOnDrop) },
+                onDragCancel = { currentState.cancelDrag() },
+            )
+        }
+}
+
+/**
+ * A tab's icon: its favicon, the host's fallback for its type, or a typed icon of our own.
+ *
+ * `internal` because the collapsed pane's summary row draws the same tab as a bare 18dp chip, and
+ * a second copy of this cascade is a second place for a favicon to stop appearing. Sized at
+ * [ROW_ICON] for both, which is the host's arrangement too: a 14dp glyph inside an 18dp chip.
+ */
+@Composable
+internal fun TabGlyph(
+    tab: ActiveTabData,
+    activeTabsProvider: ActiveTabsProvider,
+) {
+    val favicon = activeTabsProvider.loadFavicon(tab.faviconCacheKey)
+    val modifier = Modifier.size(ROW_ICON)
+
+    when {
+        // A real favicon keeps the site's own colours, so it is an Image and never tinted.
+        favicon != null -> Image(painter = favicon, contentDescription = null, modifier = modifier)
+        else ->
+            Icon(
+                imageVector = fallbackIcon(tab, activeTabsProvider),
+                contentDescription = null,
+                modifier = modifier,
+                // NO tint argument, which is the point. Icon defaults to LocalContentColor, so the
+                // glyph takes the row's own colour and dims with the title exactly as the tab bar's
+                // does. This used to hand every type its own colour - an accent for browsers, green
+                // for terminals - which the bar does not do: it tints only when the TAB supplies a
+                // tint of its own, and a panel cannot see that. Inventing one made a list of tabs
+                // read as a legend.
+            )
+    }
+}
+
+/**
+ * The glyph for a tab with no favicon.
+ *
+ * `getFallbackIcon` answers by TYPE, which is right for a terminal or an editor and wrong for the
+ * one browser tab that is not showing a site: on the home page the host's own tab swaps its globe
+ * for a house (`FluckTabInfo.icon`, gated on `isHomeUrl`). A panel reading `ActiveTabData` cannot
+ * see that decision - it gets a url and a type id - so it repeats the same test rather than
+ * showing a globe for a tab the rest of the app calls Home.
+ */
+@Composable
+private fun fallbackIcon(
+    tab: ActiveTabData,
+    activeTabsProvider: ActiveTabsProvider,
+): ImageVector =
+    when {
+        isHomeUrl(tab) -> Icons.Outlined.Home
+        else -> activeTabsProvider.getFallbackIcon(tab.typeId) ?: tabIcon(tab.typeId)
+    }
+
+/**
+ * The host's `FluckTabInfo.isHomeUrl`, repeated because it is not exposed.
+ *
+ * Only for a browser tab: a terminal whose url is null is not on a home page, it has no url at all.
+ */
+private fun isHomeUrl(tab: ActiveTabData): Boolean {
+    val isBrowser =
+        tab.typeId.contains("fluck", ignoreCase = true) || tab.typeId.contains("browser", ignoreCase = true)
+    if (!isBrowser) return false
+    val url = tab.url
+    return url == null || url.isBlank() || url == "about:blank"
+}
+
+/**
+ * Right-click menu for a row.
+ *
+ * "Move to space" is a submenu rather than a flat list because the destinations are named by
+ * the user and there can be as many as they have workspaces running. It is omitted entirely when
+ * there is nowhere to move to - a disabled item that is always disabled teaches nothing.
+ */
+private fun tabMenuItems(
+    tab: ActiveTabData,
+    transferTargets: List<TransferTarget>,
+    onFocus: () -> Unit,
+    onClose: () -> Unit,
+    onMoveTo: (String, String?, Int?) -> Unit,
+): List<ContextMenuItemData> =
+    buildList {
+        add(ContextMenuItemData(label = "Focus", icon = Icons.AutoMirrored.Outlined.OpenInNew, onClick = onFocus))
+        if (transferTargets.isNotEmpty()) {
+            add(
+                ContextMenuItemData(
+                    label = "Move to space",
+                    icon = SpaceIcon,
+                    subMenu =
+                        transferTargets.map { target ->
+                            ContextMenuItemData(
+                                label = target.name,
+                                onClick = { onMoveTo(target.workspaceId, null, null) },
+                            )
+                        },
+                ),
+            )
+        }
+        add(ContextMenuItemData(label = "", isDivider = true))
+        add(ContextMenuItemData(label = "Close Tab", icon = Icons.Outlined.Close, onClick = onClose))
+        // The tab's own workspace, last, as context rather than an action.
+        add(ContextMenuItemData(label = "In: ${tab.workspaceName}"))
+    }
+
+internal fun tabIcon(typeId: String): ImageVector =
+    when {
+        typeId.contains("browser", ignoreCase = true) || typeId.contains("fluck", ignoreCase = true) ->
+            Icons.Outlined.Language
+        typeId.contains("terminal", ignoreCase = true) -> Icons.Outlined.Terminal
+        typeId.contains("editor", ignoreCase = true) -> Icons.Outlined.Code
+        else -> Icons.Outlined.Tab
+    }
+
+/**
+ * The tab under the cursor while a drag is in flight.
+ *
+ * Without one, a drag showed only its two endpoints: the source row dimmed and the target header
+ * lit up. Between them there was nothing to say what was being carried, or that a drag was
+ * happening at all once the pointer left the row it started on.
+ *
+ * Drawn by the panel, not by the row, and for the reason that matters: a row lives inside a
+ * `LazyColumn` and is clipped to it, so a ghost emitted there would be cut off at the row's own
+ * bounds and would scroll away with it. This is a sibling of the list, laid over the whole panel.
+ *
+ * Placement is [pointer] minus [panelOrigin], both in window coordinates: the drag reports where
+ * the finger is in the window, and this Box needs an offset inside the panel. The pointer sits
+ * INSIDE the card, a quarter in from its leading edge and vertically centred, which is the host's
+ * own ghost hotspot - see [GHOST_HOTSPOT_FRACTION]. It never intercepts anything: no pointer-input
+ * modifier, so hit-testing for the drop target passes straight through it.
+ */
+@Composable
+internal fun TabDragGhost(
+    dragState: TabDragState,
+    activeTabsProvider: ActiveTabsProvider,
+    panelOrigin: Offset,
+) {
+    val tab = dragState.dragging ?: return
+
+    // Two deliberate choices about WHERE each value is read, because a drag updates the pointer
+    // every frame and a naive read would recompose the whole tree at that rate.
+    //
+    // - The position is read inside `offset { }`, which runs in the LAYOUT phase. The ghost moves
+    //   without anything recomposing at all.
+    // - `overTarget` goes through derivedStateOf, so crossing a header recomposes this Row once
+    //   rather than on every pixel of travel: hoveredWorkspaceId reads the pointer, so reading it
+    //   directly would make the boolean a per-frame subscription to a value that rarely changes.
+    val overTarget by remember(dragState) {
+        derivedStateOf { dragState.hoveredWorkspaceId != null }
+    }
+
+    Row(
+        modifier =
+            Modifier
+                // `layout` rather than `offset`, because the hotspot is a fraction of the ghost's
+                // OWN width and only the measure pass knows it: the row is as wide as its title,
+                // up to GHOST_MAX_WIDTH. Placement still happens in the layout phase, so the
+                // ghost follows the pointer without recomposing anything - the same property
+                // `offset { }` had.
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    layout(placeable.width, placeable.height) {
+                        val pointer = dragState.pointer
+                        if (pointer == Offset.Unspecified) {
+                            placeable.place(0, 0)
+                        } else {
+                            placeable.place(
+                                x =
+                                    (pointer.x - panelOrigin.x).roundToInt() -
+                                        placeable.width / GHOST_HOTSPOT_FRACTION,
+                                y = (pointer.y - panelOrigin.y).roundToInt() - placeable.height / 2,
+                            )
+                        }
+                    }
+                }.widthIn(max = GHOST_MAX_WIDTH)
+                .height(ROW_HEIGHT)
+                .alpha(GHOST_ALPHA)
+                .clip(ROW_RADIUS)
+                .background(BossColors.darkSurface)
+                .border(
+                    width = 1.dp,
+                    // The border is the answer to "will this drop": accent over a workspace that
+                    // will take it, a quiet line everywhere else. Cheaper to read than looking
+                    // away from the cursor to check whether a header lit up.
+                    color = if (overTarget) BossThemeColors.AccentColor else BossThemeColors.BorderColor,
+                    shape = ROW_RADIUS,
+                ).padding(horizontal = ROW_INSET),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ROW_ITEM_GAP),
+    ) {
+        TabGlyph(tab, activeTabsProvider)
+        Text(
+            text = tab.title.ifEmpty { "Untitled" },
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = BossThemeColors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            softWrap = false,
+        )
+    }
+}
