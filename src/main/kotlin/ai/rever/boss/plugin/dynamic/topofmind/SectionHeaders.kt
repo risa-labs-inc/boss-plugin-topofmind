@@ -159,6 +159,9 @@ private const val CURRENT_FILL_ALPHA = 0.16f
  * groups are collapsible, so a collapsed workspace has no area, and it is exactly the workspace
  * you are not looking at that you most want to file something into.
  *
+ * [onCloseSpace] stops the Space running, keeping its saved layout - the header's one close
+ * action, and the only one an empty Space can offer.
+ *
  * [onCloseAll] closes every tab under this header. It is NULL when there is nothing to ask with,
  * and then the button is not drawn: a control that destroys this much has to be able to confirm
  * first, and an unconfirmable one is worse than an absent one.
@@ -173,6 +176,7 @@ internal fun WorkspaceHeader(
     onToggleExpand: () -> Unit,
     onActivate: () -> Unit,
     onCloseAll: (() -> Unit)? = null,
+    onCloseSpace: (() -> Unit)? = null,
     /**
      * The colour of the theme THIS Space wears, or null when the host does not theme Spaces.
      *
@@ -349,10 +353,15 @@ internal fun WorkspaceHeader(
                         )
                     }
 
-                    onCloseAll?.let { close ->
+                    // Closes the SPACE, not its tabs. One close-shaped button, because closing
+                    // the Space subsumes closing what is in it - and two of them on a 24dp row
+                    // where the name already yields at 120dp is worse than either alone. It is
+                    // also the only close an EMPTY Space can offer: `onCloseAll` is null with no
+                    // tabs to close, which is why an empty Space had no way to go.
+                    onCloseSpace?.let { close ->
                         HeaderAction(
                             icon = Icons.Outlined.Close,
-                            description = "Close every tab in ${node.name}",
+                            description = "Close ${node.name}",
                             onClick = close,
                         )
                     }

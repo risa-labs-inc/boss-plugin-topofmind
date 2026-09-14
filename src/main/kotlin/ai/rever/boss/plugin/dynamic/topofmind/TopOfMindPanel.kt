@@ -290,6 +290,10 @@ private fun TabTree(
     // close; the title, the destructive styling, the close loop and the refresh are here, so every
     // one of these asks the same question the same way.
     val dialogs = genericDialogProvider
+    val closeSpace: (String, String, Int) -> Unit = { id, name, count ->
+        confirmAndCloseSpace(id, name, count, dialogs, activeTabsProvider, scope)
+    }
+
     val closeTabs: ((String, List<ActiveTabData>) -> Unit)? =
         if (dialogs == null) {
             null
@@ -378,6 +382,7 @@ private fun TabTree(
                             scope = scope,
                             onMove = ::moveTab,
                             onCloseTabs = closeTabs,
+                            onCloseSpace = closeSpace,
                         )
                     }
                 }
@@ -498,6 +503,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
     scope: CoroutineScope,
     onMove: (ActiveTabData, String, String?, Int?) -> Unit,
     onCloseTabs: ((String, List<ActiveTabData>) -> Unit)?,
+    onCloseSpace: ((String, String, Int) -> Unit)?,
 ) {
     if (node !is TabTreeNode.WorkspaceNode) return
 
@@ -519,6 +525,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
             onActivate = {
                 switchToWorkspace(node.workspaceId, workspaceDataProvider, splitViewOperations, scope)
             },
+            onCloseSpace =
+                onCloseSpace?.let { close -> { close(node.workspaceId, node.name, tabs.size) } },
             onCloseAll =
                 onCloseTabs?.takeIf { tabs.isNotEmpty() }?.let { close ->
                     {
@@ -552,6 +560,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
                     transferSupported = transferSupported,
                     onMove = onMove,
                     onCloseTabs = onCloseTabs,
+                    onCloseSpace = onCloseSpace,
                 )
             }
         }
@@ -575,6 +584,7 @@ private fun TabStructure(
     transferSupported: Boolean,
     onMove: (ActiveTabData, String, String?, Int?) -> Unit,
     onCloseTabs: ((String, List<ActiveTabData>) -> Unit)?,
+    onCloseSpace: ((String, String, Int) -> Unit)?,
     sectionPath: String = "",
     /**
      * Whether this list is every tab of its pane, in order.
@@ -734,6 +744,7 @@ private fun TabStructure(
                     transferSupported = transferSupported,
                     onMove = onMove,
                     onCloseTabs = onCloseTabs,
+                    onCloseSpace = onCloseSpace,
                     sectionPath = path,
                 )
 
@@ -780,6 +791,45 @@ private fun tabCountPhrase(count: Int): String = if (count == 1) "1 tab" else "a
  * `closeTab` reaches tabs in workspaces that are not on screen (the host's `closeTabAnywhere`), so
  * this works on a workspace you are not currently in.
  */
+/**
+ * Stop a Space running, asking first only when there is something to lose.
+ *
+ * **Closing is not deleting.** `closeWorkspace` drops the running copy and leaves the saved file,
+ * so a closed Space reopens from the picker. What it does lose is the arrangement since the last
+ * explicit save, which is why a populated Space asks and an EMPTY one does not - an empty Space
+ * has nothing to discard, and a confirm there would be a dialog with no question in it.
+ */
+private fun confirmAndCloseSpace(
+    workspaceId: String,
+    name: String,
+    tabCount: Int,
+    dialogs: GenericDialogProvider?,
+    activeTabsProvider: ActiveTabsProvider,
+    scope: CoroutineScope,
+) {
+    if (tabCount == 0) {
+        activeTabsProvider.closeWorkspace(workspaceId)
+        scope.launch { activeTabsProvider.refreshTabs() }
+        return
+    }
+    if (dialogs == null) return
+    scope.launch {
+        val confirmed =
+            dialogs.showConfirmationDialog(
+                title = "Close Space",
+                message =
+                    "Close \"$name\"? Its ${tabCountPhrase(tabCount)} close with it, and " +
+                        "anything not saved in that layout is lost. The space itself stays saved " +
+                        "and can be opened again.",
+                confirmText = "Close",
+                isDestructive = true,
+            )
+        if (!confirmed) return@launch
+        activeTabsProvider.closeWorkspace(workspaceId)
+        activeTabsProvider.refreshTabs()
+    }
+}
+
 private fun confirmAndCloseTabs(
     tabs: List<ActiveTabData>,
     message: String,
