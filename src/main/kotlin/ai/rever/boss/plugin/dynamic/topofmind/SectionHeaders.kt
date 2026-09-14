@@ -2,8 +2,10 @@ package ai.rever.boss.plugin.dynamic.topofmind
 
 import ai.rever.boss.plugin.api.ActiveTabData
 import ai.rever.boss.plugin.api.ActiveTabsProvider
+import ai.rever.boss.plugin.api.ContextMenuProvider
 import ai.rever.boss.plugin.ui.BossColors
 import ai.rever.boss.plugin.ui.BossThemeColors
+import ai.rever.boss.plugin.ui.ContextMenuItemData
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,6 +32,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -145,6 +148,9 @@ private const val DROP_TARGET_FILL_ALPHA = 0.22f
  */
 private const val SPACE_TINT_ALPHA = 0.08f
 
+/** What the header's right-click menu calls the theme picker. The ellipsis says a dialog follows. */
+internal const val SPACE_THEME_MENU_LABEL = "Space Theme..."
+
 // The vertical tab bar's selected fill, same token and same alpha (BossTabButton's
 // SELECTED_FILL_ALPHA): an accent wash rather than a solid, because the row sits on the panel
 // surface and a solid block at this width reads as a button.
@@ -178,6 +184,20 @@ internal fun WorkspaceHeader(
      * at: substituting it would paint every group as the current one. See [SPACE_TINT_ALPHA].
      */
     spaceAccent: Color? = null,
+    contextMenuProvider: ContextMenuProvider? = null,
+    /**
+     * Open the theme picker for this Space, or null when there is nothing to pick from.
+     *
+     * **A right-click, not a button.** This row is 24dp and already carries a chevron, the name,
+     * a count and a hover-revealed close action; a permanent fifth control would be the row's
+     * fourth thing competing for the same 24dp. Right-click is already this plugin's menu gesture
+     * - `TabRow` established it - so the header simply joins it rather than inventing a fifth
+     * affordance, and a gesture that reveals nothing until used costs the row no width at all.
+     *
+     * Null when the host serves no themes, which is `ActiveTabsProvider.availableThemes` being
+     * empty. The menu is then not drawn at all rather than drawn and dead.
+     */
+    onPickTheme: (() -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -186,6 +206,25 @@ internal fun WorkspaceHeader(
     val dropTargetModifier =
         if (dragState != null) Modifier.workspaceDropTarget(node.workspaceId, dragState) else Modifier
 
+    // The header's own right-click menu. One item today, and it is a MENU rather than a direct
+    // right-click action because a bare gesture that opens a dialog is undiscoverable - a named
+    // row says what it is about to do, and leaves room for a second thing to do to a Space.
+    val menuModifier =
+        if (contextMenuProvider != null && onPickTheme != null) {
+            contextMenuProvider.applyContextMenu(
+                Modifier,
+                listOf(
+                    ContextMenuItemData(
+                        label = SPACE_THEME_MENU_LABEL,
+                        icon = Icons.Outlined.Palette,
+                        onClick = onPickTheme,
+                    ),
+                ),
+            )
+        } else {
+            Modifier
+        }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         // Full bleed, like the tab bar's group rule: it separates panes, so insetting it would make
         // it read as belonging to the group below rather than dividing the two.
@@ -193,7 +232,7 @@ internal fun WorkspaceHeader(
             Divider(color = BossThemeColors.BorderColor, modifier = Modifier.padding(top = 6.dp))
         }
 
-        Box(modifier = Modifier.fillMaxWidth().then(dropTargetModifier)) {
+        Box(modifier = Modifier.fillMaxWidth().then(dropTargetModifier).then(menuModifier)) {
             // The Space's own colour, UNDER the row rather than in it. This Box draws nothing
             // today, which is the only unoccupied layer here: the row's `background` is one
             // property saying three things, and taking a fourth turn in it would mean the tint

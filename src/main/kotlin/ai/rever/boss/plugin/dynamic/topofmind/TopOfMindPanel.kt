@@ -62,6 +62,18 @@ private const val MOVED_FLASH_MS = 1_400L
 /** Depth indent for tabs and nested split sections, matching the tab bar's group nesting. */
 private const val INDENT_STEP = 12
 
+/**
+ * The Space whose theme is being picked.
+ *
+ * It carries the NAME as well as the id because the dialog names the Space in its title, and by
+ * the time it is open the row that raised it is behind it. Looking the name back up from the tree
+ * would be a second lookup that goes stale on the roughly-2s rebuild while the dialog is up.
+ */
+private data class ThemeTarget(
+    val workspaceId: String,
+    val workspaceName: String,
+)
+
 @Composable
 @Suppress("LongParameterList")
 fun TopOfMindContent(
@@ -136,6 +148,17 @@ private fun TabTree(
     // here rather than per row - it is one map for every Space the host knows, and it changes
     // about never. Empty on a host that does not theme Spaces, which is a tint nobody draws.
     val spaceAccents by activeTabsProvider.workspaceAccents.collectAsState()
+
+    // Every theme a Space could be given. A plain read, not a flow: this is the set the running
+    // build ships, fixed for the process. EMPTY is the probe - a host that does not theme Spaces
+    // serves none - so it is what gates the header's menu item rather than a second `supportsX`.
+    val availableThemes = remember(activeTabsProvider) { activeTabsProvider.availableThemes }
+
+    // Which Space's theme is being picked, or null. Local to this composition rather than a member
+    // on `PanelDialogState`: that slot is for the two dialogs the HOST dispatches into this plugin
+    // and has to be writable from outside a composition. This one is raised by a row that is on
+    // screen by definition, and it carries a Space with it, which a one-slot enum cannot.
+    var themeTarget by remember { mutableStateOf<ThemeTarget?>(null) }
 
     // One refresh when the panel appears, and one after anything this panel changes. The host
     // adapter runs its own 2s poll and pushes into this StateFlow, so the 1s loop that used to
@@ -318,6 +341,12 @@ private fun TabTree(
                             isFirst = index == 0,
                             currentWorkspaceId = currentWorkspaceId,
                             spaceAccent = (node as? TabTreeNode.WorkspaceNode)?.let { spaceAccents[it.workspaceId] },
+                            onPickTheme =
+                                (node as? TabTreeNode.WorkspaceNode)
+                                    ?.takeIf { availableThemes.isNotEmpty() }
+                                    ?.let { workspace ->
+                                        { themeTarget = ThemeTarget(workspace.workspaceId, workspace.name) }
+                                    },
                             allTabs = activeTabs,
                             activeTabsProvider = activeTabsProvider,
                             workspaceDataProvider = workspaceDataProvider,
@@ -394,6 +423,22 @@ private fun TabTree(
                 onDismiss = { panelDialogs.close() },
             )
         }
+
+        // The theme picker, raised by a workspace header's right-click. The write goes straight
+        // back through the provider, which reaches the host's ONE writer - so the tint this panel
+        // draws updates from the same flow that the host's own Space menu moves.
+        themeTarget?.let { target ->
+            SpaceThemeDialog(
+                workspaceName = target.workspaceName,
+                themes = availableThemes,
+                currentThemeId = activeTabsProvider.workspaceThemeId(target.workspaceId),
+                onDismiss = { themeTarget = null },
+                onPick = { theme ->
+                    activeTabsProvider.setWorkspaceTheme(target.workspaceId, theme.id)
+                    themeTarget = null
+                },
+            )
+        }
         }
     }
 }
@@ -411,6 +456,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
     currentWorkspaceId: String?,
     /** The colour of the theme this Space wears, or null when the host does not theme Spaces. */
     spaceAccent: Color?,
+    /** Raise the theme picker for this Space, or null when the host serves no themes. */
+    onPickTheme: (() -> Unit)?,
     allTabs: List<ActiveTabData>,
     activeTabsProvider: ActiveTabsProvider,
     workspaceDataProvider: WorkspaceDataProvider?,
@@ -438,6 +485,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
             dragState = dragState,
             showRuleAbove = !isFirst,
             spaceAccent = spaceAccent,
+            contextMenuProvider = contextMenuProvider,
+            onPickTheme = onPickTheme,
             onToggleExpand = { treeState.toggleExpansion(node.workspaceId) },
             onActivate = {
                 switchToWorkspace(node.workspaceId, workspaceDataProvider, splitViewOperations, scope)

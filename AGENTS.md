@@ -605,6 +605,46 @@ saved, running, and the layouts BOSS ships. `TopOfMindContent` collects it once 
   is the honest answer. `SwitcherRow.Group` carries the workspace ID, not only the name - a colour
   is keyed by id, and two Spaces may share a name.
 
+**A Space's theme can be CHANGED from its header, by right-click.** `SectionHeaders.kt` hangs one
+`ContextMenuItemData` off the workspace header - "Space Theme..." - which raises
+`SpaceThemePicker.kt`, a `BossDialog`. Right-click rather than a button, because that row is 24dp
+and already carries a chevron, a name, a count and a hover-revealed close action; `TabRow` already
+established right-click as this plugin's menu gesture, so the header joins it rather than inventing
+a fifth affordance. It is a MENU rather than a bare right-click action, because a gesture that
+silently opens a dialog is undiscoverable and a named row leaves room for a second thing to do to a
+Space.
+
+- **A dialog rather than a submenu, and that is forced.** `ContextMenuItemData` is a label, an
+  icon, a divider, a click and a submenu - no colour on it - so a theme list inside the menu would
+  be six words and no swatches, which is a list of names for things whose whole content is how they
+  look. The same reason the Space picker is a dialog.
+- **A LIST, where the Space picker is a grid**, because the two are doing different jobs. A Space
+  tile is something you RECOGNISE, so it wants area and its name is a caption. A theme is a short,
+  fixed, NAMED set - two of the six differ by nothing but the word "Light" and a third (Daylight) is
+  light and does not say so - so the name is half the answer and belongs beside the preview rather
+  than under it.
+- **Each row is a PIECE OF THE THEME, not a swatch**, and that is how the two Blueprints are told
+  apart: they share `#0F5BFF` exactly, so a coloured dot shows the same dot twice. The plate is
+  painted in `BossThemeOption.surface` with the accent on it - ink under blue against paper under
+  blue - which is a real distinction, a truer preview than a glyph, and the reason `surface` is on
+  the api type at all. A plugin has no light-theme colour of its own, so a pale plate without it
+  would be a colour literal.
+- **The tick comes from `workspaceThemeId`, not from the colour**, and the render is why. Marking
+  by the accent the api already published per Space ticked BOTH Blueprints and ran one wash across
+  two rows. Identity and appearance are separate members because they answer different questions:
+  a tint wants a colour and wants it live, a picker wants an id when it opens.
+- **The write goes back through `ActiveTabsProvider.setWorkspaceTheme`**, which reaches the host's
+  one writer - so the tint this panel draws moves because of the panel's own write, from the same
+  flow the host's Space menu moves. `SpaceThemeRoundTripTest` mounts the real `TopOfMindContent` in
+  an `ImageComposeScene`, renders, flips the theme through the provider and renders AGAIN in the
+  SAME composition, asserting the frame moved nearer the colour that was picked. One scene, not
+  two: two fresh scenes each compose from scratch and would pass against a panel that had swapped
+  `collectAsState` for a plain `.value` read. Mutation-verified - that swap, and a host setter that
+  persists without republishing, each fail it.
+- **Resetting to the default is NOT offered here**, deliberately. The host knows whether a Space
+  has a theme of its own and a plugin does not, so a "use the default" row would sometimes do
+  nothing; reset stays on the host's Space menu, where that knowledge is.
+
 **Every alpha here was set by rendering it and LOOKING, and the arithmetic was wrong all three
 times.** Saturation reads as presence and an alpha does not know that: at the number the ratio
 suggested, the green Space beat an untinted current row in the tree and matched the selected row in
@@ -613,7 +653,8 @@ the switcher, while the blue one sat a third below both. On the floors the oppos
 floor is its ground PLUS panes at 0.34 PLUS an accent outline PLUS a `TextPrimary` name, and the
 ground alone was never the thing to compare against. `SwitcherGroupHeader`, `QuickSwitcherBody`,
 `SwitcherRow` and `switcherRows` are `internal` for exactly the reason `SpacePickerContent` is: so
-the body can go into an `ImageComposeScene` and be looked at.
+the body can go into an `ImageComposeScene` and be looked at, and so is `SpaceThemePickerContent` -
+whose first render is what found the double tick.
 
 ### One section per pane, named by the host
 
