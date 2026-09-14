@@ -6,6 +6,8 @@ import ai.rever.boss.plugin.api.ContextMenuProvider
 import ai.rever.boss.plugin.ui.BossColors
 import ai.rever.boss.plugin.ui.BossThemeColors
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,9 +24,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Divider
 import androidx.compose.material.Icon
+import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -51,6 +55,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -358,12 +364,21 @@ internal fun WorkspaceHeader(
                     // where the name already yields at 120dp is worse than either alone. It is
                     // also the only close an EMPTY Space can offer: `onCloseAll` is null with no
                     // tabs to close, which is why an empty Space had no way to go.
-                    onCloseSpace?.let { close ->
-                        HeaderAction(
-                            icon = Icons.Outlined.Close,
-                            description = "Close ${node.name}",
-                            onClick = close,
-                        )
+                    // The Space on screen shows a status dot where every other Space shows a
+                    // close. Closing the one you are in empties the window rather than removing a
+                    // row, so the button looked broken - it was answering a question the user was
+                    // not asking. The dot says why there is nothing to press, and it is the mark
+                    // the host's own Space menu already uses for "this one is on screen".
+                    if (isCurrent) {
+                        HeaderStatusDot(label = "Selected")
+                    } else {
+                        onCloseSpace?.let { close ->
+                            HeaderAction(
+                                icon = Icons.Outlined.Close,
+                                description = "Close ${node.name}",
+                                onClick = close,
+                            )
+                        }
                     }
                 }
             }
@@ -648,6 +663,56 @@ private fun SplitPositionGlyph(
         )
     }
 }
+
+/**
+ * A status mark in an action's slot: a filled dot that says what it means on hover.
+ *
+ * Not a [HeaderAction] with a no-op click - a control that consumes a press and does nothing is
+ * the thing this replaced. It takes the same [ACTION_TARGET] so the row does not reflow between a
+ * Space that shows a close and the one that shows this.
+ *
+ * `ok` rather than the accent: the accent already says "current" three times on this row (the
+ * fill, the text weight, the leading stripe), and a fourth in the same colour adds nothing. `ok`
+ * is the token the host's Space menu marks the workspace on screen with, so one colour means one
+ * thing in both places.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HeaderStatusDot(label: String) {
+    TooltipArea(
+        tooltip = {
+            Surface(
+                color = BossColors.darkSurface,
+                shape = ACTION_RADIUS,
+                elevation = TOOLTIP_ELEVATION,
+            ) {
+                Text(
+                    text = label,
+                    color = BossThemeColors.TextPrimary,
+                    fontSize = TOOLTIP_FONT,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                )
+            }
+        },
+        delayMillis = TOOLTIP_DELAY_MS,
+    ) {
+        Box(modifier = Modifier.size(ACTION_TARGET), contentAlignment = Alignment.Center) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(STATUS_DOT)
+                        .background(BossThemeColors.SuccessColor, CircleShape)
+                        .semantics { contentDescription = label },
+            )
+        }
+    }
+}
+
+/** The dot's diameter, and how long a pointer rests before the tooltip answers. */
+private val STATUS_DOT = 8.dp
+private const val TOOLTIP_DELAY_MS = 400
+private val TOOLTIP_ELEVATION = 4.dp
+private val TOOLTIP_FONT = 10.sp
 
 /**
  * One icon button on a header row, the host's `HeaderAction` verbatim.
