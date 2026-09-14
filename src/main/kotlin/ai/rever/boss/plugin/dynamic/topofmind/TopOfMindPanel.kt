@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
@@ -128,6 +129,13 @@ private fun TabTree(
     scope: CoroutineScope,
 ) {
     val activeTabs by activeTabsProvider.activeTabs.collectAsState()
+
+    // What colour each Space is wearing. A BOSS theme belongs to a Space now, so the three
+    // surfaces in this panel that name a Space can say which one by colour as well as by word:
+    // the tree's group headers, the floors below them, and the switcher's headings. Collected once
+    // here rather than per row - it is one map for every Space the host knows, and it changes
+    // about never. Empty on a host that does not theme Spaces, which is a tint nobody draws.
+    val spaceAccents by activeTabsProvider.workspaceAccents.collectAsState()
 
     // One refresh when the panel appears, and one after anything this panel changes. The host
     // adapter runs its own 2s poll and pushes into this StateFlow, so the 1s loop that used to
@@ -309,6 +317,7 @@ private fun TabTree(
                             node = node,
                             isFirst = index == 0,
                             currentWorkspaceId = currentWorkspaceId,
+                            spaceAccent = (node as? TabTreeNode.WorkspaceNode)?.let { spaceAccents[it.workspaceId] },
                             allTabs = activeTabs,
                             activeTabsProvider = activeTabsProvider,
                             workspaceDataProvider = workspaceDataProvider,
@@ -338,6 +347,7 @@ private fun TabTree(
                 // Null in a workspace that is not on screen, which is why only the lit floor ever
                 // marks a pane as the one being worked in.
                 activePanelId = activeTabsProvider.activePanelId,
+                spaceAccents = spaceAccents,
                 // The SAME switch the workspace headers use. A second copy is a second chance to
                 // drop the preserve step and lose a layout.
                 onSelectWorkspace = { workspaceId ->
@@ -399,6 +409,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
     node: TabTreeNode,
     isFirst: Boolean,
     currentWorkspaceId: String?,
+    /** The colour of the theme this Space wears, or null when the host does not theme Spaces. */
+    spaceAccent: Color?,
     allTabs: List<ActiveTabData>,
     activeTabsProvider: ActiveTabsProvider,
     workspaceDataProvider: WorkspaceDataProvider?,
@@ -425,6 +437,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
             isCurrent = currentWorkspaceId == node.workspaceId,
             dragState = dragState,
             showRuleAbove = !isFirst,
+            spaceAccent = spaceAccent,
             onToggleExpand = { treeState.toggleExpansion(node.workspaceId) },
             onActivate = {
                 switchToWorkspace(node.workspaceId, workspaceDataProvider, splitViewOperations, scope)

@@ -153,6 +153,37 @@ private const val HOVER_PANE_ALPHA = 0.18f
 
 /** How far the current floor's ground is tinted toward the accent. A blend, not an alpha. */
 private const val CURRENT_FLOOR_ALPHA = 0.12f
+
+/**
+ * How far an IDLE floor's ground is taken toward the colour of the Space it draws.
+ *
+ * A BOSS theme belongs to a Space, and the hue of a not-current floor's ground is the one channel
+ * this view has left. `isCurrent` already speaks six times per floor - the ground tint, the pane
+ * fill, the lit outline, the active pane, the label colour and the label weight - so the Space's
+ * own colour must not become a seventh thing that answers the same question. It is the only thing
+ * on this floor that says WHICH Space rather than which state.
+ *
+ * **A lerp target, not an alpha**, like everything else here. A translucent floor lets the panel's
+ * ground through and reads as a wash over the page rather than a bar drawn on it; only the panes
+ * are translucent, and they are translucent against this.
+ *
+ * **The ceiling is not [CURRENT_FLOOR_ALPHA], and assuming it was is how this was first set far
+ * too low.** A lit floor is not its ground: it is that ground plus every pane filled at
+ * [CURRENT_PANE_ALPHA] on top of it, an accent OUTLINE around the whole box, and a `TextPrimary`
+ * SemiBold name. Held under 0.12 the Space tint was invisible on screen - the stack looked exactly
+ * as it did before, which is the version that would have shipped on the arithmetic alone.
+ *
+ * Judged by rendering the stack and looking at it. At 0.22 the floors read as colour swatches
+ * rather than as a picture of the window, and the amber one took its `TextSecondary` name down
+ * with it; at 0.14 each Space is recognisable at a glance, an untinted Space still looks plain
+ * beside them, and the lit floor is unmistakable on all four of its other counts.
+ *
+ * One stated cost: [PANE_EDGE_ALPHA] is a grey, so the seam between two panes is a little quieter
+ * on a tinted floor than on a bare one. It is quietest on the warm hues, where the border token
+ * has least to contrast with. Raising the tint is what would break it properly, which is another
+ * reason not to.
+ */
+private const val SPACE_GROUND_BLEND = 0.14f
 private const val PANE_EDGE_ALPHA = 0.7f
 
 // The two receding faces are SHADING of the front one, not colours of their own: each is a blend of
@@ -312,6 +343,12 @@ internal fun WorkspaceFloors(
     nodes: List<TabTreeNode>,
     currentWorkspaceId: String?,
     activePanelId: String?,
+    /**
+     * The colour each Space's theme wears, by workspace id. Absent means "no colour", never the
+     * accent - the accent is what the Space you are IN looks like, and lending it to a floor that
+     * is not on screen would light a second one.
+     */
+    spaceAccents: Map<String, Color>,
     onSelectWorkspace: (String) -> Unit,
 ) {
     val workspaces = remember(nodes) { nodes.filterIsInstance<TabTreeNode.WorkspaceNode>() }
@@ -393,6 +430,7 @@ internal fun WorkspaceFloors(
                     metrics = metrics,
                     isCurrent = currentWorkspaceId == node.workspaceId,
                     activePanelId = activePanelId,
+                    spaceAccent = spaceAccents[node.workspaceId],
                     onClick = { onSelectWorkspace(node.workspaceId) },
                 )
             }
@@ -427,6 +465,7 @@ private fun Floor(
     metrics: FloorMetrics,
     isCurrent: Boolean,
     activePanelId: String?,
+    spaceAccent: Color?,
     onClick: () -> Unit,
 ) {
     val panes = remember(node.tabStructure) { WorkspaceFloorPlan.panesOf(node.tabStructure) }
@@ -438,7 +477,13 @@ private fun Floor(
     // Opaque blends, never a surface at an alpha: a translucent floor lets the panel's ground
     // through and reads as a wash over the page rather than a bar drawn on it. Only the PANES are
     // translucent, and they have an opaque floor under them to be translucent against.
-    val ground = lerp(BossColors.darkSurface, accent, if (isCurrent) CURRENT_FLOOR_ALPHA else 0f)
+    val ground =
+        when {
+            isCurrent -> lerp(BossColors.darkSurface, accent, CURRENT_FLOOR_ALPHA)
+            // The Space's own colour. See SPACE_GROUND_BLEND for why this is the one free channel.
+            spaceAccent != null -> lerp(BossColors.darkSurface, spaceAccent, SPACE_GROUND_BLEND)
+            else -> BossColors.darkSurface
+        }
     // What the front face mostly READS as: the ground, plus whatever wash the panes lay over it.
     // The two receding faces are shaded off THIS rather than off the bare ground, so a lit floor
     // gets a lit box - off the ground alone its top face came out darker than its own front and the
@@ -465,7 +510,11 @@ private fun Floor(
                     accent.copy(alpha = ACTIVE_PANE_ALPHA)
                 isCurrent -> accent.copy(alpha = CURRENT_PANE_ALPHA)
                 hovered -> accent.copy(alpha = HOVER_PANE_ALPHA)
-                else -> BossColors.darkSurface
+                // The floor's own ground, which is `darkSurface` for a Space with no colour and
+                // exactly what this branch has always drawn. Restating the token here instead
+                // would leave an untinted rectangle sitting on a tinted bar, and a pane that is
+                // not the colour of the floor it is cut into reads as a hole in it.
+                else -> ground
             }
         }
     // The accent is a FILL token and lands under 4.5:1 as text, which is written down under Colours

@@ -118,6 +118,11 @@ internal fun QuickSwitcherDialog(
 ) {
     var query by remember { mutableStateOf("") }
     var selectedIndex by remember { mutableStateOf(0) }
+
+    // A BOSS theme belongs to a Space, and this dialog lists Spaces from every window - so a
+    // heading can say WHICH Space it is by colour as well as by name. Collected, not read: a Space
+    // re-themed while the switcher is open must repaint under it.
+    val spaceAccents by activeTabsProvider.workspaceAccents.collectAsState()
     val listState = rememberLazyListState()
     val searchFocus = remember { FocusRequester() }
     val tabs by activeTabsProvider.allWindowTabs.collectAsState()
@@ -211,6 +216,7 @@ internal fun QuickSwitcherDialog(
                     selectedIndex = selectedIndex,
                     listState = listState,
                     activeTabsProvider = activeTabsProvider,
+                    spaceAccents = spaceAccents,
                     onChoose = ::choose,
                 )
             }
@@ -220,7 +226,7 @@ internal fun QuickSwitcherDialog(
 
 @Composable
 @Suppress("LongParameterList")
-private fun QuickSwitcherBody(
+internal fun QuickSwitcherBody(
     query: String,
     onQueryChange: (String) -> Unit,
     searchFocus: FocusRequester,
@@ -229,6 +235,8 @@ private fun QuickSwitcherBody(
     selectedIndex: Int,
     listState: androidx.compose.foundation.lazy.LazyListState,
     activeTabsProvider: ActiveTabsProvider,
+    /** What colour each Space wears, by workspace id. See [SwitcherGroupHeader]. */
+    spaceAccents: Map<String, Color>,
     onChoose: (ActiveTabData) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(DIALOG_INSET)) {
@@ -280,7 +288,7 @@ private fun QuickSwitcherBody(
             ) {
                 items(rows.size) { index ->
                     when (val row = rows[index]) {
-                        is SwitcherRow.Group -> SwitcherGroupHeader(row)
+                        is SwitcherRow.Group -> SwitcherGroupHeader(row, spaceAccents[row.workspaceId])
                         is SwitcherRow.Tab ->
                             SwitcherTabRow(
                                 tab = row.tab,
@@ -304,15 +312,32 @@ private fun QuickSwitcherBody(
 }
 
 /**
- * A workspace's name, and where that workspace is when it is not in this window.
+ * A workspace's name, where that workspace is when it is not in this window, and what colour it is.
  *
  * The same 10sp SemiBold on 0.8sp tracking the panel's own headers use, so the dialog and the tree
  * behind it read as one thing.
+ *
+ * **The least occupied surface in the panel**, which is why the tint is a plain background here
+ * where the tree's header needs a layer underneath one: this row has no background at all today
+ * and no current-or-not state to composite over. It still sits below [SELECTED_FILL_ALPHA], so a
+ * heading can never out-shout the row the arrow keys are on - the one thing in this dialog that
+ * has to be findable at a glance.
+ *
+ * **Rows are grouped by (window, Space), so one Space can appear in two groups.** Both wear the
+ * same colour, which is the honest answer: it is one Space, running in two windows.
  */
 @Composable
-private fun SwitcherGroupHeader(group: SwitcherRow.Group) {
+internal fun SwitcherGroupHeader(
+    group: SwitcherRow.Group,
+    spaceAccent: Color?,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(GROUP_HEIGHT).padding(horizontal = GROUP_INSET),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(GROUP_HEIGHT)
+                .background(spaceAccent?.copy(alpha = GROUP_TINT_ALPHA) ?: Color.Transparent, ROW_RADIUS)
+                .padding(horizontal = GROUP_INSET),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -415,7 +440,27 @@ private fun SwitcherTabRow(
 private const val SELECTED_FILL_ALPHA = 0.16f
 
 /**
+ * How much of a Space's own colour its heading carries.
+ *
+ * Under [SELECTED_FILL_ALPHA] deliberately: the headings are scenery a reader scans past and the
+ * selected row is the thing they are steering, so a group that matched it would compete with the
+ * one mark that has to be found instantly. A little above the tree's own header tint, because
+ * nothing is composited on top of this one.
+ *
+ * **Measured off a render, not chosen from the ratio.** At 0.12 the GREEN heading came out within
+ * 3% of the selected row's luminance while the blue one sat 28% below it - the same trap the
+ * tree's tint hit, and for the same reason: saturation reads as presence and the alpha does not
+ * know that. 0.10 puts the loudest hue a clear tenth under the row the arrows are on.
+ */
+private const val GROUP_TINT_ALPHA = 0.10f
+
+/**
  * The list the dialog draws: group headers and tab rows, already filtered and already ordered.
+ *
+ * `internal` rather than private, along with [switcherRows], [SwitcherGroupHeader] and
+ * [QuickSwitcherBody], for the reason `SpacePickerContent` is: the body can then be composed into
+ * an `ImageComposeScene` and LOOKED at, and the grouping rule can be asserted on its own. The
+ * dialog itself cannot be rendered that way, because it is a window.
  *
  * Flat, and carrying both indices, because two different things count. [SwitcherRow.Tab.matchIndex]
  * is the position among TABS, which is what the arrow keys move through - headers are not stops.
@@ -423,8 +468,16 @@ private const val SELECTED_FILL_ALPHA = 0.16f
  * takes. Deriving one from the other at the call site is the arithmetic that silently scrolls to
  * the wrong row as soon as a group has a header.
  */
-private sealed interface SwitcherRow {
+internal sealed interface SwitcherRow {
     data class Group(
+        /**
+         * WHICH Space this heading is for, not just what it is called.
+         *
+         * A Space's colour is keyed by id, and two Spaces may share a name - the header would
+         * otherwise have to look one up by a string the user chose, which is exactly the mistake
+         * the host's own name-versus-id rewrite was about.
+         */
+        val workspaceId: String,
         val workspaceName: String,
         val elsewhere: Boolean,
     ) : SwitcherRow
@@ -451,7 +504,7 @@ private sealed interface SwitcherRow {
  *
  * Pure, so what the dialog shows is a function of what it was given.
  */
-private fun switcherRows(
+internal fun switcherRows(
     tabs: List<ActiveTabData>,
     query: String,
     thisWindowId: String?,
@@ -488,6 +541,7 @@ private fun switcherRows(
     groups.forEach { (key, groupTabs) ->
         rows.add(
             SwitcherRow.Group(
+                workspaceId = key.second,
                 workspaceName = groupTabs.first().workspaceName.ifEmpty { "Space" },
                 elsewhere = thisWindowId != null && key.first != thisWindowId,
             ),

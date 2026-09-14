@@ -200,7 +200,8 @@ here so there is ONE switcher rather than two. The host's copy is deleted.
 - **Rows are grouped by (window, workspace), not by workspace.** The same workspace can be running
   in two windows, and merging them would put a tab you cannot reach under a heading that says it is
   here. This window's groups come first; within a block, workspace name order, for the reason
-  `TabTreeBuilder.workspaceOrder` records.
+  `TabTreeBuilder.workspaceOrder` records. A group carries the workspace ID as well as its name,
+  because its tint is keyed by id and two Spaces may share a name.
 - **Two indices per row, and deriving one from the other is the bug.** `matchIndex` is the position
   among TABS, which is what the arrows move through - headers are not stops. `rowIndex` is the
   position in the flat list, which is what `animateScrollToItem` takes. They differ by the number of
@@ -572,6 +573,48 @@ through the same `switchToWorkspace` the workspace headers use.
   MCP port and `screencapture -R` the window - see the project memory for the recipe.
 
 
+### A Space wears a colour, and three surfaces say so
+
+A BOSS theme belongs to a Space now: entering one re-skins the whole app, and the host publishes
+what each Space is wearing through `ActiveTabsProvider.workspaceAccents`, a
+`StateFlow<Map<String, Color>>` keyed by workspace id and covering every Space the host knows -
+saved, running, and the layouts BOSS ships. `TopOfMindContent` collects it once and hands it down;
+`QuickSwitcherDialog` collects its own, because it is raised outside that tree.
+
+- **Absent means NO COLOUR, never the accent.** The accent is what the Space you are LOOKING at is
+  wearing, so substituting it would paint every Space as the current one. An empty map is a host
+  that does not theme Spaces, and every one of these surfaces then draws exactly what it drew
+  before - which is how the degradation was verified, by rendering both.
+- **Three surfaces, and the picker is deliberately not one of them.** The Space picker and the
+  host's tools menu are one pattern, token for token; tinting its tiles would break that
+  commitment, and a tile already marks three states with its border, its panes and its state line.
+- **The tree's header (`SectionHeaders.kt`) tints a layer UNDER the row, not the row.** That `Box`
+  draws nothing today and is the only unoccupied layer there: the row's own `background` is one
+  property saying three things (a live drop at 0.22, the current Space at 0.16, hover), and taking
+  a fourth turn in it would show the tint only on a row that was none of those. Underneath, all
+  three composite on top and every one still wins.
+- **The floors view (`WorkspaceFloors.kt`) tints the HUE OF `ground` when `isCurrent` is false**,
+  which is the one channel left: this file forbids translucency, so the Space colour is a `lerp`
+  target rather than an alpha, and `topFace`/`sideFace` derive from `ground` so the whole box
+  follows for free. `isCurrent` already speaks six times per floor and does not take a seventh.
+  An idle pane's fill became `ground` rather than the `darkSurface` it restated - the two were
+  equal before, and leaving the token there would have cut untinted rectangles into a tinted bar.
+- **The switcher's heading (`QuickSwitcher.kt`) is the least occupied surface**: no background at
+  all today and no current-or-not state to composite over, so the tint is a plain background. It
+  groups by (window, Space), so one Space can appear in two headings; both wear its colour, which
+  is the honest answer. `SwitcherRow.Group` carries the workspace ID, not only the name - a colour
+  is keyed by id, and two Spaces may share a name.
+
+**Every alpha here was set by rendering it and LOOKING, and the arithmetic was wrong all three
+times.** Saturation reads as presence and an alpha does not know that: at the number the ratio
+suggested, the green Space beat an untinted current row in the tree and matched the selected row in
+the switcher, while the blue one sat a third below both. On the floors the opposite - held under
+`CURRENT_FLOOR_ALPHA` "so an idle floor cannot read as lit", the tint was invisible, because a lit
+floor is its ground PLUS panes at 0.34 PLUS an accent outline PLUS a `TextPrimary` name, and the
+ground alone was never the thing to compare against. `SwitcherGroupHeader`, `QuickSwitcherBody`,
+`SwitcherRow` and `switcherRows` are `internal` for exactly the reason `SpacePickerContent` is: so
+the body can go into an `ImageComposeScene` and be looked at.
+
 ### One section per pane, named by the host
 
 `TabTreeBuilder.buildTabStructure` groups tabs by `panelId` and names each group from
@@ -782,6 +825,10 @@ hex values chosen against one dark theme; they are tokens now.
 `signalText` is **not** reachable from `BossColors`. `BossColors.darkAccent` is `signal`, which is
 a fill colour: under the default theme it lands below 4.5:1 as text. Keep the accent to fills and
 the selection stripe.
+
+The one colour here that is not a token is a **Space's own**, from
+`ActiveTabsProvider.workspaceAccents` - which is a theme's `signal` too, just some other Space's.
+It is still never a literal, and it is still only ever a fill.
 
 ### The look
 

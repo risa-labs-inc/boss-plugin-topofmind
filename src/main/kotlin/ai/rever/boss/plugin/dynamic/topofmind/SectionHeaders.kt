@@ -121,6 +121,30 @@ private const val SUMMARY_CHIP_HOVER_ALPHA = 0.55f
 private const val COUNT_ALPHA = 0.7f
 private const val DROP_TARGET_FILL_ALPHA = 0.22f
 
+/**
+ * How much of a Space's OWN colour its header row carries.
+ *
+ * A BOSS theme belongs to a Space, and this is where the tree says so - which Space a group is
+ * becomes something you recognise rather than something you read.
+ *
+ * **It goes UNDER the row's own background, which is why the number is this small.** That property
+ * already carries three meanings in one slot (a live drop, the current Space, hover), and the
+ * current wash is only [CURRENT_FILL_ALPHA] over a transparent ground - so the whole headroom is
+ * one and a half tenths of an alpha. A tint that read brighter than an untinted current row would
+ * make the marker for "this is the Space you are in" the second-loudest thing on the header. At
+ * this alpha the current row composites to roughly a quarter of its accent and still wins by a
+ * clear margin, and it wins by MORE than the arithmetic suggests, because on the current row the
+ * two layers are the same hue: a Space's colour IS the app's accent while you are in it.
+ *
+ * **Judged by rendering the tree and looking at it, and 0.10 was wrong.** At that alpha the amber
+ * row measured within 3% of an untinted current row's luminance and the green one plainly drew the
+ * eye harder, because saturation reads as presence where the arithmetic only sees brightness. At
+ * 0.08 every tinted row sits clearly under it and the steel blue - the quietest signal BOSS ships
+ * - is still legible against the bare ground; at 0.06 that one had all but disappeared, which is
+ * the floor this sits just above.
+ */
+private const val SPACE_TINT_ALPHA = 0.08f
+
 // The vertical tab bar's selected fill, same token and same alpha (BossTabButton's
 // SELECTED_FILL_ALPHA): an accent wash rather than a solid, because the row sits on the panel
 // surface and a solid block at this width reads as a button.
@@ -147,6 +171,13 @@ internal fun WorkspaceHeader(
     onToggleExpand: () -> Unit,
     onActivate: () -> Unit,
     onCloseAll: (() -> Unit)? = null,
+    /**
+     * The colour of the theme THIS Space wears, or null when the host does not theme Spaces.
+     *
+     * Null rather than the accent, because the accent is the colour of the Space you are LOOKING
+     * at: substituting it would paint every group as the current one. See [SPACE_TINT_ALPHA].
+     */
+    spaceAccent: Color? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -163,6 +194,22 @@ internal fun WorkspaceHeader(
         }
 
         Box(modifier = Modifier.fillMaxWidth().then(dropTargetModifier)) {
+            // The Space's own colour, UNDER the row rather than in it. This Box draws nothing
+            // today, which is the only unoccupied layer here: the row's `background` is one
+            // property saying three things, and taking a fourth turn in it would mean the tint
+            // could only show on a row that was neither current, nor hovered, nor a drop target -
+            // which is most of the time, and never at the moment a reader is looking. Underneath,
+            // all three composite ON TOP and every one of them still wins.
+            spaceAccent?.let { accent ->
+                Box(
+                    modifier =
+                        Modifier
+                            .matchParentSize()
+                            .clip(HEADER_RADIUS)
+                            .background(accent.copy(alpha = SPACE_TINT_ALPHA)),
+                )
+            }
+
             Row(
                 modifier =
                     Modifier
