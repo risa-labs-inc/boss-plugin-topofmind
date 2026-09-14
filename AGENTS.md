@@ -639,8 +639,13 @@ Space.
   an `ImageComposeScene`, renders, flips the theme through the provider and renders AGAIN in the
   SAME composition, asserting the frame moved nearer the colour that was picked. One scene, not
   two: two fresh scenes each compose from scratch and would pass against a panel that had swapped
-  `collectAsState` for a plain `.value` read. Mutation-verified - that swap, and a host setter that
-  persists without republishing, each fail it.
+  `collectAsState` for a plain `.value` read. It throws away a frame EITHER SIDE of the change, and
+  both are needed: the panel has effects that run after its first composition, and `collectAsState`
+  delivers on a coroutine, so a write is not on screen until a frame has carried it - without them
+  the comparison failed about one full build in four. Plumbing rather than leniency: a panel
+  reading `.value` once, or a host persisting without republishing, never converges however many
+  frames it gets. Mutation-verified - that swap, and a host setter that persists without
+  republishing, each fail it.
 - **Resetting to the default is NOT offered here**, deliberately. The host knows whether a Space
   has a theme of its own and a plugin does not, so a "use the default" row would sometimes do
   nothing; reset stays on the host's Space menu, where that knowledge is.

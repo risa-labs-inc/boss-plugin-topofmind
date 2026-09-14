@@ -5,7 +5,6 @@ import ai.rever.boss.plugin.api.ActiveTabsProvider
 import ai.rever.boss.plugin.api.ContextMenuProvider
 import ai.rever.boss.plugin.ui.BossColors
 import ai.rever.boss.plugin.ui.BossThemeColors
-import ai.rever.boss.plugin.ui.ContextMenuItemData
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,7 +31,6 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -148,8 +146,6 @@ private const val DROP_TARGET_FILL_ALPHA = 0.22f
  */
 private const val SPACE_TINT_ALPHA = 0.08f
 
-/** What the header's right-click menu calls the theme picker. The ellipsis says a dialog follows. */
-internal const val SPACE_THEME_MENU_LABEL = "Space Theme..."
 
 // The vertical tab bar's selected fill, same token and same alpha (BossTabButton's
 // SELECTED_FILL_ALPHA): an accent wash rather than a solid, because the row sits on the panel
@@ -202,25 +198,48 @@ internal fun WorkspaceHeader(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isDropTarget = dragState?.hoveredWorkspaceId == node.workspaceId
+    // The actions are REVEALED ON HOVER, and that is a measurement rather than a preference.
+    //
+    // `HeaderAction` was written to be always drawn, for the host's reason: a control that exists
+    // only once you are pointing at it cannot be found by somebody looking for it. That was the
+    // right trade while there was ONE action. It is not the right trade with two, and a render
+    // said so where the arithmetic had not:
+    //
+    // The actions are unweighted and the NAME takes `weight(1f)`, so the name is what yields. Two
+    // 24dp targets plus the chevron, the count, four 6dp gaps and 20dp of inset come to 112dp of
+    // fixed width - so at 120dp, the width the footer's own `HostActionsFlowRow` measurement
+    // records this panel being draggable to, the name gets 8dp and the row draws as a chevron, a
+    // number and two buttons with NO WORKSPACE NAME AT ALL. A header that has lost the one thing
+    // it is for is worse than an action you have to hover for, especially when the right-click
+    // menu carries the same row at no width whatever.
+    //
+    // The idle row is also strictly better than what shipped before: the close action used to take
+    // 30dp from the name on every row at every width, pointed at or not.
+    //
+    // Confined to THIS header rather than moved into `HeaderAction`, so the split section header
+    // below it keeps its single always-drawn action - one action has never had this problem, and
+    // changing it would be a second behaviour nobody measured.
+    //
+    // Hovering an ACTION leaves the row hovered too, because Compose hit-tests every node under
+    // the pointer - the same fact the collapsed pane's summary chips rely on for their own fill -
+    // so reaching for a button never takes the buttons away.
+    //
+    // Known cost: no keyboard route to these buttons. There is not one today either (this tree has
+    // no keyboard navigation at all), and the right-click menu needs no hover.
+    val showActions = isHovered
 
     val dropTargetModifier =
         if (dragState != null) Modifier.workspaceDropTarget(node.workspaceId, dragState) else Modifier
 
-    // The header's own right-click menu. One item today, and it is a MENU rather than a direct
-    // right-click action because a bare gesture that opens a dialog is undiscoverable - a named
-    // row says what it is about to do, and leaves room for a second thing to do to a Space.
+    // The header's own right-click menu, carrying the same one row the button beside the count
+    // opens. Kept alongside the button rather than replaced by it: the actions are unweighted and
+    // the NAME is what yields when the panel is dragged narrow, so at the widths this panel can
+    // reach the row is better served by a gesture that costs no width at all. It is a named MENU
+    // row rather than a bare right-click action because a gesture that silently opens a dialog is
+    // undiscoverable, and the row leaves space for a second thing to do to a Space.
     val menuModifier =
         if (contextMenuProvider != null && onPickTheme != null) {
-            contextMenuProvider.applyContextMenu(
-                Modifier,
-                listOf(
-                    ContextMenuItemData(
-                        label = SPACE_THEME_MENU_LABEL,
-                        icon = Icons.Outlined.Palette,
-                        onClick = onPickTheme,
-                    ),
-                ),
-            )
+            contextMenuProvider.applyContextMenu(Modifier, spaceThemeMenuItems(onPickTheme))
         } else {
             Modifier
         }
@@ -312,15 +331,31 @@ internal fun WorkspaceHeader(
                     color = BossThemeColors.TextMuted.copy(alpha = COUNT_ALPHA),
                 )
 
-                // Last, after the count, so the row reads "what, how many, and the one thing you
-                // can do to all of it". Its own clickable consumes the press, so closing a
-                // workspace's tabs never also switches to that workspace.
-                onCloseAll?.let { close ->
-                    HeaderAction(
-                        icon = Icons.Outlined.Close,
-                        description = "Close every tab in ${node.name}",
-                        onClick = close,
-                    )
+                // The two things you can do to a whole Space, after the count, in the order they
+                // cost: re-theming is reversible from the same button, closing every tab is not,
+                // so the destructive one stays outermost and furthest from the name. Each has its
+                // own clickable, which consumes the press - so neither also switches to the Space
+                // underneath it.
+                //
+                // **Revealed on hover, and that is MEASURED rather than chosen.** See
+                // [ACTIONS_ON_HOVER]: two always-drawn actions delete the workspace name outright
+                // at the width this panel can be dragged to.
+                if (showActions) {
+                    onPickTheme?.let { pick ->
+                        HeaderAction(
+                            icon = SpaceThemeIcon,
+                            description = "Choose a theme for ${node.name}",
+                            onClick = pick,
+                        )
+                    }
+
+                    onCloseAll?.let { close ->
+                        HeaderAction(
+                            icon = Icons.Outlined.Close,
+                            description = "Close every tab in ${node.name}",
+                            onClick = close,
+                        )
+                    }
                 }
             }
 

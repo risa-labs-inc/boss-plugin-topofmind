@@ -6,6 +6,7 @@ import ai.rever.boss.plugin.ui.BossDialog
 import ai.rever.boss.plugin.ui.BossSecondaryButton
 import ai.rever.boss.plugin.ui.BossTheme
 import ai.rever.boss.plugin.ui.BossThemeColors
+import ai.rever.boss.plugin.ui.ContextMenuItemData
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,12 +31,14 @@ import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,6 +65,37 @@ private val PLATE_DOT = 13.dp
 
 /** BossTabButton's SELECTED_FILL_ALPHA, the wash this panel marks a chosen row with everywhere. */
 private const val SELECTED_FILL_ALPHA = 0.16f
+
+/** What every route to the theme picker calls it. The ellipsis says a dialog follows. */
+internal const val SPACE_THEME_MENU_LABEL = "Space Theme..."
+
+/**
+ * The right-click row that raises the theme picker, for any surface that names a Space.
+ *
+ * ONE definition, because there are three ways in now - the header's button, the header's menu and
+ * the space map's menu - and they must be one gesture with one label rather than three that drift.
+ * Same reason the dialog itself is shared: there is one writer behind all of them.
+ */
+internal fun spaceThemeMenuItems(onPickTheme: () -> Unit): List<ContextMenuItemData> =
+    listOf(
+        ContextMenuItemData(
+            label = SPACE_THEME_MENU_LABEL,
+            icon = SpaceThemeIcon,
+            onClick = onPickTheme,
+        ),
+    )
+
+/**
+ * The glyph that means "theme", wherever a Space offers one.
+ *
+ * A PALETTE, not a gear or a brush. A gear says settings, which is a different page and a
+ * different scope; a brush says "paint something", which is editing content rather than choosing
+ * a look. A palette is a set of colours to pick from, which is exactly what the dialog behind it
+ * is. It is also the glyph the HOST already uses on `Options > Space Theme`, so one mark means one
+ * thing whether a user meets it on the Space button or in this panel.
+ */
+internal val SpaceThemeIcon: ImageVector
+    get() = Icons.Outlined.Palette
 
 /**
  * The theme a Space wears, picked from a small dialog.

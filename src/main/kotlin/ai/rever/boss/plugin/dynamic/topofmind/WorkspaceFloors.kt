@@ -2,6 +2,7 @@ package ai.rever.boss.plugin.dynamic.topofmind
 
 import ai.rever.boss.plugin.scrollbar.getPanelScrollbarConfig
 import ai.rever.boss.plugin.scrollbar.lazyListScrollbar
+import ai.rever.boss.plugin.api.ContextMenuProvider
 import ai.rever.boss.plugin.ui.BossColors
 import ai.rever.boss.plugin.ui.BossThemeColors
 import androidx.compose.foundation.Canvas
@@ -349,6 +350,15 @@ internal fun WorkspaceFloors(
      * is not on screen would light a second one.
      */
     spaceAccents: Map<String, Color>,
+    contextMenuProvider: ContextMenuProvider?,
+    /**
+     * Raise the theme picker for a floor's Space, or null when the host serves no themes.
+     *
+     * **The first context menu this view has ever had.** A floor is a bigger and more deliberate
+     * target than a 24dp header row, and it is the surface where a Space's colour is most visible -
+     * the whole stack is tinted - so it is the natural place to change one.
+     */
+    onPickTheme: ((workspaceId: String, workspaceName: String) -> Unit)?,
     onSelectWorkspace: (String) -> Unit,
 ) {
     val workspaces = remember(nodes) { nodes.filterIsInstance<TabTreeNode.WorkspaceNode>() }
@@ -431,6 +441,8 @@ internal fun WorkspaceFloors(
                     isCurrent = currentWorkspaceId == node.workspaceId,
                     activePanelId = activePanelId,
                     spaceAccent = spaceAccents[node.workspaceId],
+                    contextMenuProvider = contextMenuProvider,
+                    onPickTheme = onPickTheme?.let { pick -> { pick(node.workspaceId, node.name) } },
                     onClick = { onSelectWorkspace(node.workspaceId) },
                 )
             }
@@ -466,6 +478,8 @@ private fun Floor(
     isCurrent: Boolean,
     activePanelId: String?,
     spaceAccent: Color?,
+    contextMenuProvider: ContextMenuProvider?,
+    onPickTheme: (() -> Unit)?,
     onClick: () -> Unit,
 ) {
     val panes = remember(node.tabStructure) { WorkspaceFloorPlan.panesOf(node.tabStructure) }
@@ -522,11 +536,27 @@ private fun Floor(
     // TextPrimary. The tint is what says which floor this is.
     val labelColor = if (lit) BossThemeColors.TextPrimary else BossThemeColors.TextSecondary
 
+    // A right-click on the floor, carrying the SAME row the tree's header offers - one gesture,
+    // one label, one dialog.
+    //
+    // It does not fight the click that switches to this Space: `clickable` answers the primary
+    // button only, so the secondary press falls through to the menu. That is not reasoned - it is
+    // the arrangement `TabRow` in this same plugin has shipped with all along, a context-menu
+    // modifier and a `clickable` on one Box, in this order. Before the fill, so the press it
+    // consumes never reaches the floor underneath.
+    val menuModifier =
+        if (contextMenuProvider != null && onPickTheme != null) {
+            contextMenuProvider.applyContextMenu(Modifier, spaceThemeMenuItems(onPickTheme))
+        } else {
+            Modifier
+        }
+
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .height(metrics.pitch)
+                .then(menuModifier)
                 .hoverable(interaction)
                 .clickable(onClick = onClick),
     ) {

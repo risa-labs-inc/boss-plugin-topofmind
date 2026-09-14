@@ -377,6 +377,15 @@ private fun TabTree(
                 // marks a pane as the one being worked in.
                 activePanelId = activeTabsProvider.activePanelId,
                 spaceAccents = spaceAccents,
+                contextMenuProvider = contextMenuProvider,
+                // The third way in, and the same one: a floor's right-click raises the dialog the
+                // tree's header button and its menu row raise. One writer behind all three.
+                onPickTheme =
+                    if (availableThemes.isEmpty()) {
+                        null
+                    } else {
+                        { workspaceId, workspaceName -> themeTarget = ThemeTarget(workspaceId, workspaceName) }
+                    },
                 // The SAME switch the workspace headers use. A second copy is a second chance to
                 // drop the preserve step and lose a layout.
                 onSelectWorkspace = { workspaceId ->

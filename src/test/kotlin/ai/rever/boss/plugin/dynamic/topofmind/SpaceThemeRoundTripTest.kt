@@ -209,8 +209,20 @@ class SpaceThemeRoundTripTest {
                 }
             }
         return try {
+            // A frame either side of the change, thrown away, and both are needed.
+            //
+            // Before: the panel has effects that run after its first composition - a tab refresh,
+            // the floors' scroll-the-newest-into-view - so the first render is not the settled
+            // picture. After: `collectAsState` delivers its emission on a coroutine, so the write
+            // is not on screen until a frame has carried it there.
+            //
+            // This is plumbing, not leniency. A panel that read `.value` once instead of
+            // collecting, or a host that persisted without republishing, never converges however
+            // many frames it is given - which is what the mutations against this test show.
+            scene.render()
             val before = scene.pixels()
             change()
+            scene.render()
             before to scene.pixels()
         } finally {
             scene.close()
