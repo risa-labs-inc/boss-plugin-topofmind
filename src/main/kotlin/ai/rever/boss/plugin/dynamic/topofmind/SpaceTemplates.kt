@@ -36,6 +36,8 @@ private val BUILT_IN_SPACE_IDS =
         "workspace-terminal-browser",
         "workspace-dual-terminal",
         "workspace-browser",
+        "workspace-dual-browser",
+        "workspace-browser-terminal",
     )
 
 /**
@@ -43,15 +45,15 @@ private val BUILT_IN_SPACE_IDS =
  *
  * **Identity, not shape**, and this is the second answer to that question. It used to be "does the
  * layout still carry an unsubstituted `{projectPath}`", which is the host's `requiresProject()` -
- * a different question that agrees on seven of the eight built-ins and disagrees on **Browser
- * Only**, a single browser panel on a fixed URL with nothing to parameterise. That put one of the
+ * a different question that disagrees on **Browser Only** and the project-free starter splits,
+ * which have nothing to parameterise. That put some of the
  * shipped layouts in with the user's own Spaces. The user's model is the plain one: the defaults we
  * ship are the templates.
  *
  * **The two notions stay separate rather than being conflated the other way.** Being a template is
  * this; being MATERIALISED on pick is still `requiresProject()`, host-side. So the seven with
- * placeholders become a Space named for the project, and Browser Only is applied as it is - it has
- * nothing to substitute and no project to name a copy after. See [TEMPLATES_HINT], which is
+ * placeholders become a Space named for the project. Browser Only and starter splits apply as
+ * they are, with nothing to substitute and no project to name a copy after. See [TEMPLATES_HINT], which is
  * therefore worded to promise neither.
  *
  * A plugin could not make the materialising decision anyway: resolving `{gitRemoteUrl}` forks `git`

@@ -424,6 +424,8 @@ class SpacePickerTest {
                 "workspace-terminal-browser",
                 "workspace-dual-terminal",
                 "workspace-browser",
+                "workspace-dual-browser",
+                "workspace-browser-terminal",
             )
 
         builtIns.forEach { id ->
