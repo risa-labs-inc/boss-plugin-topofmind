@@ -160,6 +160,9 @@ private fun TabTree(
     // screen by definition, and it carries a Space with it, which a one-slot enum cannot.
     var themeTarget by remember { mutableStateOf<ThemeTarget?>(null) }
 
+    // Which Space is being renamed, or null. Local for the reason `themeTarget` is.
+    var renameTarget by remember { mutableStateOf<RenameTarget?>(null) }
+
     // One refresh when the panel appears, and one after anything this panel changes. The host
     // adapter runs its own 2s poll and pushes into this StateFlow, so the 1s loop that used to
     // live here was a second timer asking the same question twice as often.
@@ -173,6 +176,19 @@ private fun TabTree(
     // (see TabTreeBuilder.workspaceOrder), so a workspace saved while the panel is open has to
     // move without waiting for a tab somewhere to change.
     val savedWorkspaces = workspaceDataProvider?.workspaces?.collectAsState()?.value.orEmpty()
+
+    // A rename lands in the saved list first; the tab rows that label populated Spaces only catch
+    // up on the host's next poll. Asking again when a saved NAME changes relabels at once.
+    val savedNames = remember(savedWorkspaces) { savedWorkspaces.associate { it.id to it.name } }
+    LaunchedEffect(savedNames) { activeTabsProvider.refreshTabs() }
+
+    // The rename row for a Space, or null when there is no provider to write through or the host
+    // would refuse it. One function for the header and the floor, so both offer the same Spaces.
+    val renameFor: (String) -> (() -> Unit)? = { workspaceId ->
+        workspaceDataProvider?.let {
+            renameTargetFor(workspaceId, savedWorkspaces)?.let { target -> { renameTarget = target } }
+        }
+    }
 
     // Every Space this window is RUNNING, which is not the same question as which Spaces have a
     // tab in them - and it is the only way an EMPTY Space gets a row at all.
@@ -370,6 +386,7 @@ private fun TabTree(
                                     ?.let { workspace ->
                                         { themeTarget = ThemeTarget(workspace.workspaceId, workspace.name) }
                                     },
+                            onRename = (node as? TabTreeNode.WorkspaceNode)?.let { renameFor(it.workspaceId) },
                             allTabs = activeTabs,
                             activeTabsProvider = activeTabsProvider,
                             workspaceDataProvider = workspaceDataProvider,
@@ -410,6 +427,7 @@ private fun TabTree(
                     } else {
                         { workspaceId, workspaceName -> themeTarget = ThemeTarget(workspaceId, workspaceName) }
                     },
+                onRename = renameFor,
                 // The SAME switch the workspace headers use. A second copy is a second chance to
                 // drop the preserve step and lose a layout.
                 onSelectWorkspace = { workspaceId ->
@@ -472,6 +490,20 @@ private fun TabTree(
                 },
             )
         }
+
+        // The rename dialog, raised by a Space's right-click in the tree or the floor map. The
+        // host writes the file and republishes `workspaces`, so the tree relabels from that flow.
+        renameTarget?.let { target ->
+            SpaceRenameDialog(
+                target = target,
+                saved = savedWorkspaces,
+                onDismiss = { renameTarget = null },
+                onRename = { newName ->
+                    workspaceDataProvider?.renameWorkspace(target.currentName, newName)
+                    renameTarget = null
+                },
+            )
+        }
         }
     }
 }
@@ -491,6 +523,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
     spaceAccent: Color?,
     /** Raise the theme picker for this Space, or null when the host serves no themes. */
     onPickTheme: (() -> Unit)?,
+    /** Raise the rename dialog for this Space, or null when it cannot be renamed from here. */
+    onRename: (() -> Unit)?,
     allTabs: List<ActiveTabData>,
     activeTabsProvider: ActiveTabsProvider,
     workspaceDataProvider: WorkspaceDataProvider?,
@@ -521,6 +555,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.workspaceGroup(
             spaceAccent = spaceAccent,
             contextMenuProvider = contextMenuProvider,
             onPickTheme = onPickTheme,
+            onRename = onRename,
             onToggleExpand = { treeState.toggleExpansion(node.workspaceId) },
             onActivate = {
                 switchToWorkspace(node.workspaceId, workspaceDataProvider, splitViewOperations, scope)

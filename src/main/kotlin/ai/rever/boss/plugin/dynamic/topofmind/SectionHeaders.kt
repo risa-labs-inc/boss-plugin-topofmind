@@ -204,6 +204,11 @@ internal fun WorkspaceHeader(
      * empty. The menu is then not drawn at all rather than drawn and dead.
      */
     onPickTheme: (() -> Unit)? = null,
+    /**
+     * Rename this Space, or null when it cannot be renamed from here - see [renameTargetFor].
+     * Right-click only: the row has no width to spare for a sixth thing.
+     */
+    onRename: (() -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -247,9 +252,10 @@ internal fun WorkspaceHeader(
     // reach the row is better served by a gesture that costs no width at all. It is a named MENU
     // row rather than a bare right-click action because a gesture that silently opens a dialog is
     // undiscoverable, and the row leaves space for a second thing to do to a Space.
+    val menuItems = spaceMenuItems(onRename = onRename, onPickTheme = onPickTheme)
     val menuModifier =
-        if (contextMenuProvider != null && onPickTheme != null) {
-            contextMenuProvider.applyContextMenu(Modifier, spaceThemeMenuItems(onPickTheme))
+        if (contextMenuProvider != null && menuItems.isNotEmpty()) {
+            contextMenuProvider.applyContextMenu(Modifier, menuItems)
         } else {
             Modifier
         }
