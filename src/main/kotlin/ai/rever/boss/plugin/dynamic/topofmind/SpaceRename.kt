@@ -45,9 +45,6 @@ import androidx.compose.ui.unit.sp
 
 internal const val SPACE_RENAME_MENU_LABEL = "Rename Space..."
 
-/** The host's `LAST_SESSION_ID`, copied for the reason [isTemplate]'s ids are: a plugin cannot import it. */
-internal const val LAST_SESSION_ID = "last-session"
-
 /**
  * The Space a rename is aimed at: its id, and the SAVED name the host will look it up by.
  *

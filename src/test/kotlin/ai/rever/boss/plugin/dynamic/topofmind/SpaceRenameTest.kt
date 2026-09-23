@@ -65,6 +65,12 @@ class SpaceRenameTest {
     }
 
     @Test
+    fun `a template's name is taken, since the saved list carries the built-ins`() {
+        val target = RenameTarget("workspace-1", "Backend")
+        assertEquals("A Space named \"Codex\" already exists", renameProblem("Codex", target, listOf(template, mine)))
+    }
+
+    @Test
     fun `rename comes before theme, and a missing half is left out`() {
         assertEquals(
             listOf(SPACE_RENAME_MENU_LABEL, SPACE_THEME_MENU_LABEL),

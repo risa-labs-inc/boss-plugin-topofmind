@@ -39,6 +39,13 @@ private val BUILT_IN_SPACE_IDS =
     )
 
 /**
+ * The host's `LAST_SESSION_ID`, the autosave slot. Copied beside [BUILT_IN_SPACE_IDS] so every host
+ * id this plugin repeats is in one file, with the same drift direction: a stale copy only means the
+ * slot is offered a rename that does not stick.
+ */
+internal const val LAST_SESSION_ID = "last-session"
+
+/**
  * Whether this is a template: one of the layouts BOSS ships, rather than a Space someone saved.
  *
  * **Identity, not shape**, and this is the second answer to that question. It used to be "does the

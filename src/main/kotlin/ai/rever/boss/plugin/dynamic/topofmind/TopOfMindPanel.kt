@@ -499,7 +499,12 @@ private fun TabTree(
                 saved = savedWorkspaces,
                 onDismiss = { renameTarget = null },
                 onRename = { newName ->
-                    workspaceDataProvider?.renameWorkspace(target.currentName, newName)
+                    // Asked again at submit, against the list as it is NOW: the api renames by
+                    // name, so a Space renamed elsewhere while this was open must not be looked up
+                    // by the name it had when the menu was clicked.
+                    if (renameTargetFor(target.workspaceId, savedWorkspaces) == target) {
+                        workspaceDataProvider?.renameWorkspace(target.currentName, newName)
+                    }
                     renameTarget = null
                 },
             )
