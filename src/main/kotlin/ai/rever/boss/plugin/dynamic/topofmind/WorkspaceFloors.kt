@@ -359,6 +359,8 @@ internal fun WorkspaceFloors(
      * the whole stack is tinted - so it is the natural place to change one.
      */
     onPickTheme: ((workspaceId: String, workspaceName: String) -> Unit)?,
+    /** Rename a floor's Space, or null for a Space that cannot be renamed from here. */
+    onRename: (workspaceId: String) -> (() -> Unit)? = { null },
     onSelectWorkspace: (String) -> Unit,
 ) {
     val workspaces = remember(nodes) { nodes.filterIsInstance<TabTreeNode.WorkspaceNode>() }
@@ -443,6 +445,7 @@ internal fun WorkspaceFloors(
                     spaceAccent = spaceAccents[node.workspaceId],
                     contextMenuProvider = contextMenuProvider,
                     onPickTheme = onPickTheme?.let { pick -> { pick(node.workspaceId, node.name) } },
+                    onRename = onRename(node.workspaceId),
                     onClick = { onSelectWorkspace(node.workspaceId) },
                 )
             }
@@ -480,6 +483,7 @@ private fun Floor(
     spaceAccent: Color?,
     contextMenuProvider: ContextMenuProvider?,
     onPickTheme: (() -> Unit)?,
+    onRename: (() -> Unit)?,
     onClick: () -> Unit,
 ) {
     val panes = remember(node.tabStructure) { WorkspaceFloorPlan.panesOf(node.tabStructure) }
@@ -544,9 +548,10 @@ private fun Floor(
     // the arrangement `TabRow` in this same plugin has shipped with all along, a context-menu
     // modifier and a `clickable` on one Box, in this order. Before the fill, so the press it
     // consumes never reaches the floor underneath.
+    val menuItems = spaceMenuItems(onRename = onRename, onPickTheme = onPickTheme)
     val menuModifier =
-        if (contextMenuProvider != null && onPickTheme != null) {
-            contextMenuProvider.applyContextMenu(Modifier, spaceThemeMenuItems(onPickTheme))
+        if (contextMenuProvider != null && menuItems.isNotEmpty()) {
+            contextMenuProvider.applyContextMenu(Modifier, menuItems)
         } else {
             Modifier
         }

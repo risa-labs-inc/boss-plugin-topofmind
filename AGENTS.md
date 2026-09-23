@@ -646,6 +646,12 @@ Space.
   reading `.value` once, or a host persisting without republishing, never converges however many
   frames it gets. Mutation-verified - that swap, and a host setter that persists without
   republishing, each fail it.
+- **The same menu carries "Rename Space..."**, above the theme row, on the header and the floor
+  (`SpaceRename.kt`, one `spaceMenuItems` builder for both). The api renames BY NAME
+  (`renameWorkspace(oldName, newName)`) and the host refuses without saying so, so the row is only
+  offered where a rename would stick: a saved Space, not a template, not Last Session (every
+  autosave restamps its name), and not a name another saved Space shares. The dialog mirrors the
+  host's refusals (empty, unchanged, taken) instead of closing on a no-op.
 - **Resetting to the default is NOT offered here**, deliberately. The host knows whether a Space
   has a theme of its own and a plugin does not, so a "use the default" row would sometimes do
   nothing; reset stays on the host's Space menu, where that knowledge is.
